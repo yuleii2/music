@@ -179,13 +179,13 @@ public final class MainActivity extends Activity {
     private void showHomePage() {
         currentPage = Page.HOME;
         LinearLayout root = pageRoot(dp(22), dp(22), dp(22), dp(26));
-        root.addView(homeTopBar());
+        root.addView(homeTopBar(false));
         root.addView(sectionHeader("为你推荐", "更多 〉", view -> showLibraryPage()), sectionParams(26));
         root.addView(buildChordGrid(recommendedChords(), true));
         setPageContent(scrollPage(root));
     }
 
-    private View homeTopBar() {
+    private View homeTopBar(boolean librarySelected) {
         LinearLayout bar = horizontalRow();
         bar.setGravity(Gravity.CENTER_VERTICAL);
 
@@ -193,23 +193,13 @@ public final class MainActivity extends Activity {
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.BOTTOM);
 
-        LinearLayout recommendTab = new LinearLayout(this);
-        recommendTab.setOrientation(LinearLayout.VERTICAL);
-        recommendTab.setGravity(Gravity.CENTER_HORIZONTAL);
-        recommendTab.setOnClickListener(view -> showHomePage());
-        TextView recommend = text("推荐", 28, true);
-        recommendTab.addView(recommend);
-        View underline = new View(this);
-        underline.setBackgroundColor(COLOR_ACCENT);
-        LinearLayout.LayoutParams underlineParams = new LinearLayout.LayoutParams(dp(34), dp(3));
-        underlineParams.setMargins(0, dp(4), 0, 0);
-        recommendTab.addView(underline, underlineParams);
-        tabs.addView(recommendTab);
-
-        TextView library = text("和弦库", 23, false);
-        library.setPadding(dp(24), 0, 0, dp(7));
-        library.setOnClickListener(view -> showLibraryPage());
-        tabs.addView(library);
+        tabs.addView(homeTab("推荐", !librarySelected, view -> showHomePage()));
+        LinearLayout.LayoutParams libraryParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        libraryParams.setMargins(dp(24), 0, 0, 0);
+        tabs.addView(homeTab("和弦库", librarySelected, view -> showLibraryPage()), libraryParams);
 
         bar.addView(tabs, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -225,17 +215,43 @@ public final class MainActivity extends Activity {
         return bar;
     }
 
+    private View homeTab(String label, boolean selected, View.OnClickListener listener) {
+        LinearLayout tab = new LinearLayout(this);
+        tab.setOrientation(LinearLayout.VERTICAL);
+        tab.setGravity(Gravity.CENTER_HORIZONTAL);
+        tab.setMinimumWidth(dp("推荐".equals(label) ? 74 : 94));
+        tab.setClickable(true);
+        tab.setOnClickListener(listener);
+
+        TextView title = text(label, selected ? 28 : 23, selected);
+        title.setSingleLine(true);
+        title.setGravity(Gravity.CENTER);
+        title.setIncludeFontPadding(false);
+        title.setMinWidth(dp("推荐".equals(label) ? 68 : 90));
+        title.setTextColor(COLOR_TEXT);
+        tab.addView(title);
+
+        View underline = new View(this);
+        underline.setBackgroundColor(selected ? COLOR_ACCENT : 0x00000000);
+        LinearLayout.LayoutParams underlineParams = new LinearLayout.LayoutParams(dp(42), dp(3));
+        underlineParams.setMargins(0, dp(8), 0, 0);
+        tab.addView(underline, underlineParams);
+        return tab;
+    }
+
     private void showLibraryPage() {
         currentPage = Page.LIBRARY;
-        LinearLayout root = pageRoot(dp(22), dp(24), dp(22), dp(26));
-        root.addView(pageTitle("和弦库", "搜索或浏览当前支持的常用和弦"));
+        LinearLayout root = pageRoot(dp(22), dp(22), dp(22), dp(26));
+        root.addView(homeTopBar(true));
+
+        root.addView(sectionTitle("全部和弦"), sectionParams(26));
 
         EditText searchInput = roundedInput("输入 C、Am、G7、Fmaj7 过滤");
         LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(56)
         );
-        inputParams.setMargins(0, dp(20), 0, dp(16));
+        inputParams.setMargins(0, 0, 0, dp(16));
         root.addView(searchInput, inputParams);
 
         LinearLayout gridHost = new LinearLayout(this);
