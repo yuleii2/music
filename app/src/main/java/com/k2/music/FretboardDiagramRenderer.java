@@ -138,7 +138,7 @@ public final class FretboardDiagramRenderer {
             float y = top + (visibleFret - 0.5f) * fretGap;
             float radius = Math.min(dp(density, 22), fretGap * 0.32f);
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF4F7DFF);
+            paint.setColor(0xFF101412);
             canvas.drawCircle(x, y, radius, paint);
 
             int finger = voicing.fingers[i];
