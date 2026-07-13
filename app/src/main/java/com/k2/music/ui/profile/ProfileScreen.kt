@@ -40,6 +40,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.k2.music.ui.CoreServices
 import com.k2.music.ui.MusicViewModelFactory
 import com.k2.music.ui.components.AdaptiveControlGroup
+import com.k2.music.ui.components.AdaptiveStat
+import com.k2.music.ui.components.AdaptiveStatGrid
 import com.k2.music.ui.gateway.AiGateway
 import com.k2.music.ui.gateway.PracticeGateway
 import com.k2.music.ui.gateway.PracticeSummaryUi
@@ -48,10 +50,15 @@ import com.k2.music.ui.preferences.AppSettings
 import com.k2.music.ui.preferences.ExperienceMode
 import com.k2.music.ui.preferences.MotionLevel
 import com.k2.music.ui.preferences.ThemeMode
+import com.k2.music.ui.learning.LearningProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.rememberCoroutineScope
+import com.k2.music.ui.preferences.capabilities
+import com.k2.music.PracticePreferences
 
 data class ProfileUiState(
     val loading: Boolean = true,
@@ -85,6 +92,8 @@ fun ProfileRoute(
     onAiAssistant: () -> Unit,
     onAiSettings: () -> Unit,
     onExportFavorites: () -> Unit,
+    onPracticeProgress: () -> Unit,
+    onDataBackup: () -> Unit,
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(ProfileViewModel::class) {
@@ -94,16 +103,41 @@ fun ProfileRoute(
     val viewModel: ProfileViewModel = viewModel(factory = factory)
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by appPreferences.settings.collectAsStateWithLifecycle()
+    val learningProfile by services.learningProfileStore.profile.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     ProfileScreen(
         state,
         settings,
+        learningProfile,
         onTheme = appPreferences::setThemeMode,
         onMotion = appPreferences::setMotionLevel,
-        onExperience = appPreferences::setExperienceMode,
+        onExperience = { mode ->
+            appPreferences.setExperienceMode(mode)
+            services.learningProfileStore.save(learningProfile.copy(preferredExperienceMode = mode))
+            scope.launch(Dispatchers.IO) {
+                val previous = services.practicePreferencesStore.load()
+                val capabilities = mode.capabilities()
+                services.practicePreferencesStore.save(
+                    PracticePreferences(
+                        previous.proficiency,
+                        capabilities.defaultAllowBarre,
+                        capabilities.defaultMaxFret,
+                        capabilities.defaultPracticeBpm,
+                        previous.defaultTimeSignature,
+                        previous.defaultPlaybackMode,
+                        previous.accentFirstBeat,
+                        previous.familiarVoicingIds,
+                    ),
+                )
+            }
+        },
         onDynamicColor = appPreferences::setDynamicColor,
         onAiAssistant = onAiAssistant,
         onAiSettings = onAiSettings,
         onExportFavorites = onExportFavorites,
+        onRerunOnboarding = services.learningProfileStore::rerun,
+        onPracticeProgress = onPracticeProgress,
+        onDataBackup = onDataBackup,
     )
 }
 
@@ -111,6 +145,7 @@ fun ProfileRoute(
 fun ProfileScreen(
     state: ProfileUiState,
     settings: AppSettings,
+    learningProfile: LearningProfile,
     onTheme: (ThemeMode) -> Unit,
     onMotion: (MotionLevel) -> Unit,
     onExperience: (ExperienceMode) -> Unit,
@@ -118,6 +153,9 @@ fun ProfileScreen(
     onAiAssistant: () -> Unit,
     onAiSettings: () -> Unit,
     onExportFavorites: () -> Unit,
+    onRerunOnboarding: () -> Unit,
+    onPracticeProgress: () -> Unit,
+    onDataBackup: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("profile_screen"),
@@ -132,11 +170,25 @@ fun ProfileScreen(
         }
         item("practice") {
             ProfileSection(Icons.Rounded.School, "练习概览") {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ProfileValue("今日", "${state.summary.todaySeconds / 60} 分", Modifier.weight(1f))
-                    ProfileValue("近 7 天", "${state.summary.sevenDaySessions} 次", Modifier.weight(1f))
-                    ProfileValue("最佳连续", "${state.summary.bestStreak}", Modifier.weight(1f))
-                }
+                AdaptiveStatGrid(
+                    listOf(
+                        AdaptiveStat("今日", "${state.summary.todaySeconds / 60} 分"),
+                        AdaptiveStat("近 7 天", "${state.summary.sevenDaySessions} 次"),
+                        AdaptiveStat("总尝试", "${state.summary.sevenDayAttempts} 次"),
+                        AdaptiveStat("成功率", state.summary.sevenDaySuccessRate?.let { "%.0f%%".format(it * 100) } ?: "数据不足"),
+                        AdaptiveStat("最佳连续", state.summary.bestStreak.toString()),
+                    ),
+                )
+                Button(onClick = onPracticeProgress) { Text("查看练习进步") }
+            }
+        }
+        item("learning_profile") {
+            ProfileSection(Icons.Rounded.School, "学习设置") {
+                Text("当前水平：${learningProfile.skillLevel.label}")
+                Text("学习目标：${learningProfile.goals.joinToString("、") { it.label }}")
+                Text("每日练习目标：${learningProfile.dailyTargetMinutes} 分钟")
+                TextButton(onClick = onRerunOnboarding) { Text("重新运行首次引导") }
+                Text("重新设置不会删除已有练习数据。", style = MaterialTheme.typography.bodySmall)
             }
         }
         item("appearance") {
@@ -192,13 +244,14 @@ fun ProfileScreen(
         item("data") {
             ProfileSection(Icons.Rounded.DataObject, "数据与导出") {
                 Text("本地收藏、历史、自定义指法、进行和练习记录不会上传。")
+                Button(onClick = onDataBackup) { Text("数据与备份") }
                 Button(onClick = onExportFavorites) { Text("导出收藏指法") }
             }
         }
         item("about") {
             ProfileSection(Icons.Rounded.Info, "关于软件") {
-                Text("吉他和弦字典 Android V1.3")
-                Text("离线乐理、音频、存储与导出核心；Compose Studio Flow 前端。", style = MaterialTheme.typography.bodyMedium)
+                Text("吉他和弦工作室 Android V1.4")
+                Text("离线乐理、练习、音频、存储与导出核心。", style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -217,16 +270,6 @@ private fun ProfileSection(
                 Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 10.dp))
             }
             content()
-        }
-    }
-}
-
-@Composable
-private fun ProfileValue(label: String, value: String, modifier: Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge)
-            Text(label, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

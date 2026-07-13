@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -84,10 +85,13 @@ import com.k2.music.ui.components.InlineMessage
 import com.k2.music.ui.components.AdaptiveControlGroup
 import com.k2.music.ui.gateway.ProgressionPlaybackUiState
 import com.k2.music.ui.gateway.TransportStatus
+import com.k2.music.ui.gateway.PracticeConfigUi
+import com.k2.music.ui.gateway.PracticeModeUi
 import com.k2.music.ui.model.ProgressionPlaybackMode
 import com.k2.music.ui.model.ProgressionStepUi
 import com.k2.music.ui.model.ProgressionUiModel
 import com.k2.music.ui.theme.LocalMusicMotion
+import com.k2.music.ui.preferences.LocalExperienceCapabilities
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 
@@ -97,6 +101,7 @@ fun ProgressionEditorRoute(
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onAiOptimize: (String) -> Unit,
+    onPractice: (PracticeConfigUi) -> Unit,
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(ProgressionEditorViewModel::class) { handle ->
@@ -141,6 +146,21 @@ fun ProgressionEditorRoute(
         onSave = viewModel::save,
         onDelete = viewModel::deleteCurrent,
         onAiOptimize = { state.progression?.symbols?.let(onAiOptimize) },
+        onPractice = {
+            state.progression?.let { progression ->
+                onPractice(
+                    PracticeConfigUi(
+                        mode = PracticeModeUi.MULTI_CHORD,
+                        symbols = progression.symbols,
+                        durationSeconds = 120,
+                        bpm = progression.bpm,
+                        timeSignature = progression.timeSignature,
+                        allowBarre = progression.allowBarre,
+                        maxFret = progression.maxFret,
+                    ),
+                )
+            }
+        },
         onPlayPause = viewModel::togglePlayback,
         onStop = viewModel::stopPlayback,
         onNext = viewModel::nextStep,
@@ -174,6 +194,7 @@ fun ProgressionEditorScreen(
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onAiOptimize: () -> Unit,
+    onPractice: () -> Unit,
     onPlayPause: () -> Unit,
     onStop: () -> Unit,
     onNext: () -> Unit,
@@ -182,7 +203,10 @@ fun ProgressionEditorScreen(
 ) {
     val progression = state.progression
     var editStep by remember { mutableStateOf<Int?>(null) }
-    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    val capabilities = LocalExperienceCapabilities.current
+    var showAdvanced by rememberSaveable(capabilities.expandAdvancedPracticeSettings) {
+        mutableStateOf(capabilities.expandAdvancedPracticeSettings)
+    }
     var confirmDelete by remember { mutableStateOf(false) }
     val timelineState = rememberLazyListState()
     val motion = LocalMusicMotion.current
@@ -228,6 +252,9 @@ fun ProgressionEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onPractice, enabled = (progression?.steps?.size ?: 0) >= 2) {
+                        Icon(Icons.Rounded.School, contentDescription = "使用该进行练习")
+                    }
                     IconButton(onClick = onAiOptimize, enabled = progression?.steps?.isNotEmpty() == true) {
                         Icon(Icons.Rounded.AutoAwesome, contentDescription = "用 AI 优化当前进行")
                     }

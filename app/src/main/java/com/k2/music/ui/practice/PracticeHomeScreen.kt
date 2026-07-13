@@ -41,11 +41,14 @@ import com.k2.music.ui.components.InlineMessage
 import com.k2.music.ui.gateway.PracticeConfigUi
 import com.k2.music.ui.gateway.PracticeHomeData
 import com.k2.music.ui.gateway.PracticeModeUi
+import com.k2.music.ui.components.AdaptiveStat
+import com.k2.music.ui.components.AdaptiveStatGrid
 
 @Composable
 fun PracticeHomeRoute(
     services: CoreServices,
     onSetup: (PracticeConfigUi) -> Unit,
+    onStartDirect: (PracticeConfigUi) -> Unit,
     onAiPlan: (String) -> Unit,
 ) {
     val factory = remember(services) {
@@ -61,13 +64,14 @@ fun PracticeHomeRoute(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    PracticeHomeScreen(state, onSetup, onAiPlan, viewModel::refresh)
+    PracticeHomeScreen(state, onSetup, onStartDirect, onAiPlan, viewModel::refresh)
 }
 
 @Composable
 fun PracticeHomeScreen(
     state: PracticeHomeUiState,
     onSetup: (PracticeConfigUi) -> Unit,
+    onStartDirect: (PracticeConfigUi) -> Unit,
     onAiPlan: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -96,7 +100,7 @@ fun PracticeHomeScreen(
             }
         }
         state.data?.let { data ->
-            item("quick") { QuickStartCard(data, onSetup) }
+            item("quick") { QuickStartCard(data, onStartDirect, onSetup) }
             item("modes_title") { Text("练习模式", style = MaterialTheme.typography.titleLarge) }
             item("modes") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -112,7 +116,7 @@ fun PracticeHomeScreen(
                     ) { onSetup(data.quickConfig.copy(mode = PracticeModeUi.MULTI_CHORD)) }
                     PracticeModeCard(
                         PracticeModeUi.RANDOM,
-                        "使用确定性随机顺序提高反应速度。",
+                        "随机换和弦，提高识别与切换速度。",
                         Icons.Rounded.Casino,
                     ) { onSetup(data.quickConfig.copy(mode = PracticeModeUi.RANDOM)) }
                 }
@@ -134,10 +138,14 @@ fun PracticeHomeScreen(
 }
 
 @Composable
-private fun QuickStartCard(data: PracticeHomeData, onSetup: (PracticeConfigUi) -> Unit) {
+private fun QuickStartCard(
+    data: PracticeHomeData,
+    onStart: (PracticeConfigUi) -> Unit,
+    onSetup: (PracticeConfigUi) -> Unit,
+) {
     val config = data.quickConfig
     Card(
-        onClick = { onSetup(config) },
+        onClick = { onStart(config) },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier.fillMaxWidth().testTag("practice_quick_start"),
     ) {
@@ -150,7 +158,7 @@ private fun QuickStartCard(data: PracticeHomeData, onSetup: (PracticeConfigUi) -
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            Text("设置", style = MaterialTheme.typography.labelLarge)
+            TextButton(onClick = { onSetup(config) }) { Text("调整") }
         }
     }
 }
@@ -173,23 +181,15 @@ private fun PracticeStats(data: PracticeHomeData) {
     val summary = data.summary
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("最近统计", style = MaterialTheme.typography.titleLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("今日", "${summary.todaySeconds / 60} 分钟", Modifier.weight(1f))
-            StatCard("近 7 天", "${summary.sevenDaySessions} 次", Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("常练和弦", summary.mostPracticedChord.ifBlank { "尚无" }, Modifier.weight(1f))
-            StatCard("最佳连续", "${summary.bestStreak} 次", Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(14.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium)
-            Text(value, style = MaterialTheme.typography.titleLarge)
-        }
+        AdaptiveStatGrid(
+            listOf(
+                AdaptiveStat("今日", "${summary.todaySeconds / 60} 分钟"),
+                AdaptiveStat("近 7 天练习", "${summary.sevenDaySessions} 次"),
+                AdaptiveStat("近 7 天尝试", "${summary.sevenDayAttempts} 次"),
+                AdaptiveStat("近 7 天成功率", summary.sevenDaySuccessRate?.let { "%.0f%%".format(it * 100) } ?: "数据不足"),
+                AdaptiveStat("最需复习", summary.weakestTransition?.key?.label ?: "数据不足"),
+                AdaptiveStat("最高稳定速度", summary.highestStableBpm?.let { "$it BPM" } ?: "数据不足"),
+            ),
+        )
     }
 }

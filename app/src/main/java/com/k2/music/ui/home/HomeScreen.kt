@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +69,9 @@ import com.k2.music.ui.components.ChordCard
 import com.k2.music.ui.components.InlineMessage
 import com.k2.music.ui.components.LoadingSkeleton
 import com.k2.music.ui.theme.LocalMusicMotion
+import com.k2.music.ui.gateway.PracticeConfigUi
+import com.k2.music.ui.learning.DailyPracticeTask
+import com.k2.music.ui.learning.DailyTaskType
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -74,14 +79,19 @@ fun HomeRoute(
     services: CoreServices,
     snackbarHostState: SnackbarHostState,
     onNavigateToChord: (String) -> Unit,
-    onNavigateToRecognition: () -> Unit,
-    onNavigateToTranspose: () -> Unit,
-    onNavigateToProgressions: () -> Unit,
-    onStartPractice: () -> Unit,
+    onNavigateToTools: () -> Unit,
+    onStartPractice: (PracticeConfigUi) -> Unit,
+    onAdjustPractice: (PracticeConfigUi) -> Unit,
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(HomeViewModel::class) { handle ->
-            HomeViewModel(services.chordCatalogGateway, services.userLibraryGateway, handle)
+            HomeViewModel(
+                services.chordCatalogGateway,
+                services.userLibraryGateway,
+                services.practiceGateway,
+                { services.learningProfileStore.profile.value },
+                handle,
+            )
         }
     }
     val viewModel: HomeViewModel = viewModel(factory = factory)
@@ -112,10 +122,9 @@ fun HomeRoute(
         onOpenChord = viewModel::openChord,
         onToggleFavorite = viewModel::toggleFavorite,
         onRemoveRecent = viewModel::removeRecent,
-        onNavigateToRecognition = onNavigateToRecognition,
-        onNavigateToTranspose = onNavigateToTranspose,
-        onNavigateToProgressions = onNavigateToProgressions,
+        onNavigateToTools = onNavigateToTools,
         onStartPractice = onStartPractice,
+        onAdjustPractice = onAdjustPractice,
     )
 }
 
@@ -130,10 +139,9 @@ fun HomeScreen(
     onOpenChord: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onRemoveRecent: (String) -> Unit,
-    onNavigateToRecognition: () -> Unit,
-    onNavigateToTranspose: () -> Unit,
-    onNavigateToProgressions: () -> Unit,
-    onStartPractice: () -> Unit,
+    onNavigateToTools: () -> Unit,
+    onStartPractice: (PracticeConfigUi) -> Unit,
+    onAdjustPractice: (PracticeConfigUi) -> Unit,
 ) {
     val motion = LocalMusicMotion.current
     BackHandler(enabled = state.searchActive, onBack = onCloseSearch)
@@ -161,10 +169,9 @@ fun HomeScreen(
                 onOpenChord,
                 onToggleFavorite,
                 onRemoveRecent,
-                onNavigateToRecognition,
-                onNavigateToTranspose,
-                onNavigateToProgressions,
+                onNavigateToTools,
                 onStartPractice,
+                onAdjustPractice,
             )
         }
     }
@@ -177,10 +184,9 @@ private fun HomeContent(
     onOpenChord: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onRemoveRecent: (String) -> Unit,
-    onNavigateToRecognition: () -> Unit,
-    onNavigateToTranspose: () -> Unit,
-    onNavigateToProgressions: () -> Unit,
-    onStartPractice: () -> Unit,
+    onNavigateToTools: () -> Unit,
+    onStartPractice: (PracticeConfigUi) -> Unit,
+    onAdjustPractice: (PracticeConfigUi) -> Unit,
 ) {
     val listState = rememberLazyListState()
     LazyColumn(
@@ -191,9 +197,9 @@ private fun HomeContent(
     ) {
         item("header") {
             Column {
-                Text("Studio Flow", style = MaterialTheme.typography.headlineLarge)
+                Text("吉他和弦工作室", style = MaterialTheme.typography.headlineLarge)
                 Text(
-                    "把下一次和弦切换练得更顺。",
+                    "查询和弦、练习切换、编排进行并记录进步。",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -226,35 +232,46 @@ private fun HomeContent(
                 }
             }
         }
-        item("continue") {
-            Card(
-                onClick = onStartPractice,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                shape = MaterialTheme.shapes.large,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                        Icon(
-                            Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.padding(12.dp).size(28.dp),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                        )
+        val plan = state.dailyPlan
+        val completedMinutes = state.practiceSummary.todaySeconds / 60
+        item("today-status") {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("今日练习", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "已练 $completedMinutes / ${plan?.targetMinutes ?: 5} 分钟",
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    val remaining = ((plan?.targetMinutes ?: 5) - completedMinutes).coerceAtLeast(0)
+                    Text(if (remaining == 0L) "今天的目标已完成，可以轻松复习。" else "再完成 $remaining 分钟即可达到今日目标。")
+                    if (state.practiceSummary.learningStreakDays > 0) {
+                        Text("已连续学习 ${state.practiceSummary.learningStreakDays} 天", style = MaterialTheme.typography.bodyMedium)
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (state.recent.isEmpty()) "开始第一次练习" else "继续练习",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Text("用最近的和弦快速热身", style = MaterialTheme.typography.bodyMedium)
+                    plan?.tasks?.firstOrNull { it.config != null && it.type != DailyTaskType.CONTINUE_LAST }?.let { task ->
+                        Button(onClick = { onStartPractice(requireNotNull(task.config)) }) { Text("开始：${task.title}") }
                     }
-                    Icon(Icons.AutoMirrored.Rounded.TrendingFlat, contentDescription = null)
                 }
             }
+        }
+        plan?.tasks?.firstOrNull { it.type == DailyTaskType.CONTINUE_LAST }?.let { task ->
+            item("continue") { PracticeTaskCard(task, onStartPractice, onAdjustPractice, directLabel = "直接继续") }
+        } ?: item("continue-empty") {
+            plan?.tasks?.firstOrNull { it.config != null }?.let { task ->
+                PracticeTaskCard(task.copy(title = "开始第一次练习"), onStartPractice, onAdjustPractice)
+            }
+        }
+        val reviewTasks = plan?.tasks.orEmpty().filter {
+            it.type == DailyTaskType.REVIEW_STALE_CHORD || it.type == DailyTaskType.PRACTICE_PROGRESSION
+        }
+        if (reviewTasks.isNotEmpty()) {
+            item("review-title") { SectionTitle("今日复习", "来自学习资料与历史") }
+            items(reviewTasks, key = { "review-${it.type}" }) { task ->
+                PracticeTaskCard(task, onStartPractice, onAdjustPractice)
+            }
+        }
+        plan?.weakestTransition?.let { task ->
+            item("weak-title") { SectionTitle("最需要复习的切换", "至少 5 次有效样本") }
+            item("weak") { PracticeTaskCard(task, onStartPractice, onAdjustPractice) }
         }
         if (state.recent.isNotEmpty()) {
             item("recent-title") { SectionTitle("最近查看", "长按可移除") }
@@ -272,8 +289,8 @@ private fun HomeContent(
                 }
             }
         }
-        item("recommend-title") { SectionTitle("入门推荐", "离线可用") }
-        item("recommend-list") {
+        if (state.recommendations.isNotEmpty()) item("recommend-title") { SectionTitle("推荐新内容", "推荐理由可解释") }
+        if (state.recommendations.isNotEmpty()) item("recommend-list") {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(state.recommendations, key = { it.symbol }) { chord ->
                     ChordCard(
@@ -285,12 +302,27 @@ private fun HomeContent(
                 }
             }
         }
-        item("tools-title") { SectionTitle("快捷工具", "两次点击内开始") }
-        item("tools") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                HomeToolRow(Icons.Rounded.GraphicEq, "反向识别", "从指板或音符找和弦", onNavigateToRecognition)
-                HomeToolRow(Icons.Rounded.SwapHoriz, "移调与变调夹", "快速换调并保留 slash bass", onNavigateToTranspose)
-                HomeToolRow(Icons.Rounded.Piano, "和弦进行", "编排、推荐和播放", onNavigateToProgressions)
+        item("tools") { TextButton(onClick = onNavigateToTools) { Text("查看全部工具") } }
+    }
+}
+
+@Composable
+private fun PracticeTaskCard(
+    task: DailyPracticeTask,
+    onStart: (PracticeConfigUi) -> Unit,
+    onAdjust: (PracticeConfigUi) -> Unit,
+    directLabel: String = "开始练习",
+) {
+    Card(modifier = Modifier.fillMaxWidth(), border = CardDefaults.outlinedCardBorder()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(task.title, style = MaterialTheme.typography.titleLarge)
+            Text(task.reason, style = MaterialTheme.typography.bodyMedium)
+            task.config?.let { config ->
+                Text("${config.symbols} · ${config.bpm} BPM · ${config.durationSeconds} 秒")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onStart(config) }) { Text(directLabel) }
+                    TextButton(onClick = { onAdjust(config) }) { Text("调整设置") }
+                }
             }
         }
     }

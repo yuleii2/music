@@ -306,7 +306,7 @@ public final class VoicingSvgExporter {
             text(svg, line, 42, y + 10, "body", "start", null);
         }
 
-        String appName = context == null ? "吉他和弦字典" : context.getString(R.string.app_name);
+        String appName = context == null ? "吉他和弦工作室" : context.getString(R.string.app_name);
         text(svg, appName + " / " + chord.symbol, 28, 786, "muted", "start", null);
     }
 

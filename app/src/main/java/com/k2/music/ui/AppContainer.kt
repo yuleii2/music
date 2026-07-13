@@ -14,11 +14,14 @@ import com.k2.music.CustomVoicingStore
 import com.k2.music.PracticePlanDraftStore
 import com.k2.music.PracticePreferencesStore
 import com.k2.music.PracticeRecordStore
+import com.k2.music.TransitionAttemptStore
 import com.k2.music.ProgressionPresetRepository
 import com.k2.music.ProgressionStore
 import com.k2.music.UserChordStore
 import com.k2.music.VoicingRecommendationEngine
+import com.k2.music.FullBackupManager
 import com.k2.music.ui.preferences.AppPreferences
+import com.k2.music.ui.learning.LearningProfileStore
 import com.k2.music.ui.gateway.DefaultChordCatalogGateway
 import com.k2.music.ui.gateway.DefaultUserLibraryGateway
 import com.k2.music.ui.gateway.PlaybackController
@@ -48,7 +51,11 @@ sealed interface RepositoryLoadState {
 }
 
 /** Shared instances of the existing Java core. No music-theory logic lives here. */
-class CoreServices internal constructor(application: Application) : Closeable {
+class CoreServices internal constructor(
+    application: Application,
+    val learningProfileStore: LearningProfileStore,
+    appPreferences: AppPreferences,
+) : Closeable {
     val chordRepository = ChordRepository()
     val userChordStore = UserChordStore(application, chordRepository)
     val customVoicingStore = CustomVoicingStore(application)
@@ -60,6 +67,8 @@ class CoreServices internal constructor(application: Application) : Closeable {
     val progressionDraftStore = ProgressionStore(File(application.filesDir, "progression-drafts-v1.bin"))
     val progressionPresets = ProgressionPresetRepository()
     val practiceRecordStore = PracticeRecordStore(PracticeRecordStore.defaultFile(application.filesDir))
+    val transitionAttemptStore =
+        TransitionAttemptStore(TransitionAttemptStore.defaultFile(application.filesDir))
     val practicePreferencesStore =
         PracticePreferencesStore(PracticePreferencesStore.defaultFile(application.filesDir))
     val practicePlanDraftStore = PracticePlanDraftStore(application)
@@ -101,6 +110,7 @@ class CoreServices internal constructor(application: Application) : Closeable {
     )
     val practiceGateway = DefaultPracticeGateway(
         practiceRecordStore,
+        transitionAttemptStore,
         practicePreferencesStore,
         practicePlanDraftStore,
         progressionGateway,
@@ -119,6 +129,18 @@ class CoreServices internal constructor(application: Application) : Closeable {
         customVoicingStore,
         userChordStore,
     )
+    val fullBackupManager = FullBackupManager(
+        appPreferences,
+        learningProfileStore,
+        userChordStore,
+        customVoicingStore,
+        progressionStore,
+        progressionDraftStore,
+        practicePreferencesStore,
+        practiceRecordStore,
+        transitionAttemptStore,
+        aiSettingsStore,
+    )
 
     override fun close() {
         progressionTransport.close()
@@ -135,6 +157,7 @@ class AppContainer(private val application: Application) : Closeable {
 
     val repositoryState: StateFlow<RepositoryLoadState> = _repositoryState.asStateFlow()
     val appPreferences = AppPreferences(application)
+    val learningProfileStore = LearningProfileStore(application)
 
     init {
         retryRepositoryLoad()
@@ -144,7 +167,7 @@ class AppContainer(private val application: Application) : Closeable {
         loadJob?.cancel()
         _repositoryState.value = RepositoryLoadState.Loading
         loadJob = scope.launch {
-            runCatching { CoreServices(application) }
+            runCatching { CoreServices(application, learningProfileStore, appPreferences) }
                 .onSuccess { services ->
                     (_repositoryState.value as? RepositoryLoadState.Ready)?.services?.close()
                     _repositoryState.value = RepositoryLoadState.Ready(services)

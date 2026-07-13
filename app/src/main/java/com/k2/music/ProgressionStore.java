@@ -119,6 +119,19 @@ public final class ProgressionStore {
         persist(new LinkedHashMap<>());
     }
 
+    /** Exact timestamp-preserving replacement after a backup has been fully validated. */
+    public synchronized void replaceAll(List<ChordProgression> progressions) {
+        Map<String, ChordProgression> records = new LinkedHashMap<>();
+        if (progressions != null) {
+            for (ChordProgression progression : progressions) {
+                Objects.requireNonNull(progression, "progression");
+                records.put(progression.id, progression);
+            }
+        }
+        ensureCapacity(records.size());
+        persist(records);
+    }
+
     public File storageFile() {
         return storageFile;
     }

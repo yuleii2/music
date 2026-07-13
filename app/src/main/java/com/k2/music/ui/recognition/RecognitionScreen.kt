@@ -68,6 +68,8 @@ fun RecognitionRoute(
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onOpenChord: (String) -> Unit,
+    onPractice: (String) -> Unit,
+    onAddProgression: (String) -> Unit,
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(RecognitionViewModel::class) { handle ->
@@ -111,6 +113,8 @@ fun RecognitionRoute(
         onPlay = viewModel::playCandidate,
         onFavorite = viewModel::toggleFavorite,
         onOpenChord = { onOpenChord(it.symbol) },
+        onPractice = { onPractice(it.symbol) },
+        onAddProgression = { onAddProgression(it.symbol) },
         onSave = viewModel::saveCustom,
     )
 }
@@ -131,6 +135,8 @@ fun RecognitionScreen(
     onPlay: (RecognitionMatchUi) -> Unit,
     onFavorite: (RecognitionMatchUi) -> Unit,
     onOpenChord: (RecognitionMatchUi) -> Unit,
+    onPractice: (RecognitionMatchUi) -> Unit,
+    onAddProgression: (RecognitionMatchUi) -> Unit,
     onSave: (RecognitionMatchUi, String, String, String, Int, String) -> Unit,
 ) {
     var saveMatch by remember { mutableStateOf<RecognitionMatchUi?>(null) }
@@ -257,6 +263,8 @@ fun RecognitionScreen(
                         onPlay = { onPlay(match) },
                         onFavorite = { onFavorite(match) },
                         onOpen = { onOpenChord(match) },
+                        onPractice = { onPractice(match) },
+                        onAddProgression = { onAddProgression(match) },
                         onSave = { saveMatch = match },
                     )
                 }
@@ -284,6 +292,8 @@ private fun CandidateCard(
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
     onOpen: () -> Unit,
+    onPractice: () -> Unit,
+    onAddProgression: () -> Unit,
     onSave: () -> Unit,
 ) {
     Card(
@@ -302,12 +312,12 @@ private fun CandidateCard(
             if (match.missingNotes.isNotEmpty()) Text("缺少：${match.missingNotes.joinToString(" · ")}")
             if (match.extraNotes.isNotEmpty()) Text("额外：${match.extraNotes.joinToString(" · ")}")
             if (match.inversion) Text("转位：最低音为 ${match.bassNote}")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onPlay, modifier = Modifier.weight(1f)) {
+            AdaptiveControlGroup(Modifier.fillMaxWidth()) {
+                TextButton(onClick = onPlay) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                     Text("试听")
                 }
-                TextButton(onClick = onOpen, modifier = Modifier.weight(1f)) { Text("详情") }
+                TextButton(onClick = onOpen) { Text("详情") }
                 IconButton(onClick = onFavorite) {
                     Icon(
                         if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -315,11 +325,13 @@ private fun CandidateCard(
                     )
                 }
                 if (canSave) {
-                    TextButton(onClick = onSave, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = onSave) {
                         Icon(Icons.Rounded.Save, contentDescription = null)
                         Text("保存")
                     }
                 }
+                TextButton(onClick = onPractice) { Text("用它练习") }
+                TextButton(onClick = onAddProgression) { Text("加入进行") }
             }
         }
     }

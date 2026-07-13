@@ -17,9 +17,9 @@ fun progressionEditorByIdRoute(id: String): String =
     "progression-editor?id=${encodeRouteValue(id)}&seed="
 
 const val PRACTICE_SETUP_PATTERN =
-    "practice-setup?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}"
+    "practice-setup?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}&progressionId={progressionId}&progressionRhythm={progressionRhythm}"
 const val PRACTICE_SESSION_PATTERN =
-    "practice-session?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}"
+    "practice-session?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}&progressionId={progressionId}&progressionRhythm={progressionRhythm}"
 
 fun practiceSetupRoute(config: PracticeConfigUi): String = practiceRoute("practice-setup", config)
 
@@ -34,20 +34,30 @@ private fun practiceRoute(base: String, config: PracticeConfigUi): String =
         "&switch=${config.switchMode.name}" +
         "&accent=${config.accentFirstBeat}" +
         "&barre=${config.allowBarre}" +
-        "&maxFret=${config.maxFret}"
+        "&maxFret=${config.maxFret}" +
+        "&progressionId=${encodeRouteValue(config.sourceProgressionId)}" +
+        "&progressionRhythm=${config.useProgressionRhythm}"
 
 const val PRACTICE_RESULT_PATTERN =
-    "practice-result?seconds={seconds}&count={count}&streak={streak}&symbols={symbols}&previous={previous}" +
-        "&mode={mode}&goal={goal}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}"
+    "practice-result?seconds={seconds}&attempts={attempts}&successes={successes}&failures={failures}&streak={streak}" +
+        "&symbols={symbols}&previousRate={previousRate}&hardest={hardest}&suggestedBpm={suggestedBpm}&suggestion={suggestion}" +
+        "&mode={mode}&goal={goal}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}" +
+        "&progressionId={progressionId}&progressionRhythm={progressionRhythm}"
 
 fun practiceResultRoute(
     result: com.k2.music.ui.gateway.PracticeResultUi,
     config: PracticeConfigUi,
-): String = "practice-result?seconds=${result.actualSeconds}&count=${result.completionCount}&streak=${result.bestStreak}" +
-    "&symbols=${encodeRouteValue(result.symbols.joinToString(" "))}&previous=${result.previousCompletionCount ?: -1}" +
+): String = "practice-result?seconds=${result.actualSeconds}&attempts=${result.attemptCount}" +
+    "&successes=${result.successCount}&failures=${result.failureCount}&streak=${result.bestStreak}" +
+    "&symbols=${encodeRouteValue(result.symbols.joinToString(" "))}" +
+    "&previousRate=${result.previousSuccessRate?.let { (it * 10_000).toInt() } ?: -1}" +
+    "&hardest=${encodeRouteValue(result.hardestTransition.orEmpty())}" +
+    "&suggestedBpm=${result.difficultySuggestion.suggestedBpm}" +
+    "&suggestion=${encodeRouteValue(result.difficultySuggestion.reason)}" +
     "&mode=${config.mode.name}&goal=${config.durationSeconds}&bpm=${config.bpm}" +
     "&signature=${encodeRouteValue(config.timeSignature)}&switch=${config.switchMode.name}" +
-    "&accent=${config.accentFirstBeat}&barre=${config.allowBarre}&maxFret=${config.maxFret}"
+    "&accent=${config.accentFirstBeat}&barre=${config.allowBarre}&maxFret=${config.maxFret}" +
+    "&progressionId=${encodeRouteValue(config.sourceProgressionId)}&progressionRhythm=${config.useProgressionRhythm}"
 
 const val AI_ASSISTANT_PATTERN = "ai-assistant?mode={mode}&symbol={symbol}"
 

@@ -106,7 +106,7 @@ public final class VoicingImageExporter {
         paint.setColor(0xFF101412);
         paint.setFakeBoldText(true);
         paint.setTextSize(44 * scale);
-        canvas.drawText("吉他和弦字典", 30 * scale, 50 * scale, paint);
+        canvas.drawText("吉他和弦工作室", 30 * scale, 50 * scale, paint);
 
         paint.setTextSize(30 * scale);
         canvas.drawText(chord.symbol + "  " + voicing.name, 30 * scale, 92 * scale, paint);

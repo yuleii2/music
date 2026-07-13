@@ -109,6 +109,22 @@ class ChordDetailViewModel(
         _state.value = _state.value.copy(theoryExpanded = expanded)
     }
 
+    fun applyExperienceMode(showAdvancedTheory: Boolean, showAllVoicings: Boolean) {
+        val chord = _state.value.chord
+        val selected = if (!showAllVoicings && chord != null) {
+            chord.voicings.indexOfFirst { it.recommended }.takeIf { it >= 0 } ?: 0
+        } else {
+            _state.value.selectedVoicingIndex
+        }
+        savedStateHandle[KEY_THEORY_EXPANDED] = showAdvancedTheory
+        savedStateHandle[KEY_VOICING_INDEX] = selected
+        _state.value = _state.value.copy(
+            theoryExpanded = showAdvancedTheory,
+            selectedVoicingIndex = selected,
+        )
+        refreshFamiliar()
+    }
+
     fun deleteSelectedCustomVoicing() {
         val id = _state.value.selectedVoicing?.customId ?: return
         viewModelScope.launch {

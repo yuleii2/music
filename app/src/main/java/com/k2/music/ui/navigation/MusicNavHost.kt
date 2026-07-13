@@ -35,6 +35,8 @@ import com.k2.music.ui.ai.AiAssistantRoute
 import com.k2.music.ui.ai.AiSettingsRoute
 import com.k2.music.ui.export.ExportRoute
 import com.k2.music.ui.profile.ProfileRoute
+import com.k2.music.ui.profile.PracticeProgressRoute
+import com.k2.music.ui.backup.DataBackupRoute
 import com.k2.music.ui.gateway.ExportScopeUi
 import com.k2.music.ui.gateway.PracticeConfigUi
 import com.k2.music.ui.gateway.PracticeModeUi
@@ -93,10 +95,9 @@ private fun SharedTransitionNavHost(
                     services = services,
                     snackbarHostState = snackbarHostState,
                     onNavigateToChord = { navController.navigate(chordDetailRoute(it)) { launchSingleTop = true } },
-                    onNavigateToRecognition = { navController.navigate(ROUTE_RECOGNITION) },
-                    onNavigateToTranspose = { navController.navigate(ROUTE_TRANSPOSE) },
-                    onNavigateToProgressions = { navController.navigate(ROUTE_PROGRESSIONS) },
-                    onStartPractice = { navController.navigateToRoot(AppDestination.Practice) },
+                    onNavigateToTools = { navController.navigateToRoot(AppDestination.Workbench) },
+                    onStartPractice = { navController.navigate(practiceSessionRoute(it)) },
+                    onAdjustPractice = { navController.navigate(practiceSetupRoute(it)) },
                 )
             }
         }
@@ -132,6 +133,7 @@ private fun SharedTransitionNavHost(
             PracticeHomeRoute(
                 services = services,
                 onSetup = { navController.navigate(practiceSetupRoute(it)) },
+                onStartDirect = { navController.navigate(practiceSessionRoute(it)) },
                 onAiPlan = { navController.navigate(aiAssistantRoute("practice", it)) },
             )
         }
@@ -142,7 +144,15 @@ private fun SharedTransitionNavHost(
                 onAiAssistant = { navController.navigate(aiAssistantRoute()) },
                 onAiSettings = { navController.navigate(ROUTE_AI_SETTINGS) },
                 onExportFavorites = { navController.navigate(exportRoute(ExportScopeUi.FAVORITES)) },
+                onPracticeProgress = { navController.navigate(ROUTE_PRACTICE_PROGRESS) },
+                onDataBackup = { navController.navigate(ROUTE_DATA_BACKUP) },
             )
+        }
+        composable(ROUTE_PRACTICE_PROGRESS) {
+            PracticeProgressRoute(services, navController::navigateUp)
+        }
+        composable(ROUTE_DATA_BACKUP) {
+            DataBackupRoute(services, navController::navigateUp)
         }
         composable(
             route = CHORD_DETAIL_PATTERN,
@@ -165,6 +175,11 @@ private fun SharedTransitionNavHost(
                     onExplainWithAi = { symbol ->
                         navController.navigate(aiAssistantRoute("explain", symbol))
                     },
+                    onStartPractice = { symbol ->
+                        val partner = if (symbol == "C") "G" else "C"
+                        navController.navigate(practiceSetupRoute(PracticeConfigUi(symbols = "$symbol $partner", bpm = 50, allowBarre = false, maxFret = 5)))
+                    },
+                    onAddProgression = { symbol -> navController.navigate(progressionEditorRoute(symbol)) },
                 )
             }
         }
@@ -178,6 +193,11 @@ private fun SharedTransitionNavHost(
                     snackbarHostState = snackbarHostState,
                     onBack = navController::navigateUp,
                     onOpenChord = { navController.navigate(chordDetailRoute(it)) },
+                    onPractice = { symbol ->
+                        val partner = if (symbol == "C") "G" else "C"
+                        navController.navigate(practiceSetupRoute(PracticeConfigUi(symbols = "$symbol $partner")))
+                    },
+                    onAddProgression = { navController.navigate(progressionEditorRoute(it)) },
                 )
             }
         }
@@ -237,6 +257,7 @@ private fun SharedTransitionNavHost(
                 snackbarHostState = snackbarHostState,
                 onBack = navController::navigateUp,
                 onAiOptimize = { navController.navigate(aiAssistantRoute("optimize", it)) },
+                onPractice = { navController.navigate(practiceSessionRoute(it)) },
             )
         }
         composable(
@@ -278,14 +299,24 @@ private fun SharedTransitionNavHost(
                 accentFirstBeat = args.getBoolean("accent"),
                 allowBarre = args.getBoolean("barre"),
                 maxFret = args.getInt("maxFret"),
+                sourceProgressionId = args.getString("progressionId").orEmpty(),
+                useProgressionRhythm = args.getBoolean("progressionRhythm"),
             )
             PracticeResultScreen(
                 seconds = args.getInt("seconds"),
-                count = args.getInt("count"),
+                attempts = args.getInt("attempts"),
+                successes = args.getInt("successes"),
+                failures = args.getInt("failures"),
                 streak = args.getInt("streak"),
                 symbols = args.getString("symbols").orEmpty(),
-                previous = args.getInt("previous").takeIf { it >= 0 },
+                previousRate = args.getInt("previousRate").takeIf { it >= 0 }?.div(10_000.0),
+                hardestTransition = args.getString("hardest").orEmpty().ifBlank { null },
+                suggestedBpm = args.getInt("suggestedBpm"),
+                suggestionReason = args.getString("suggestion").orEmpty(),
                 onAgain = { navController.navigate(practiceSessionRoute(config)) },
+                onSuggestedAgain = {
+                    navController.navigate(practiceSessionRoute(config.copy(bpm = args.getInt("suggestedBpm"))))
+                },
                 onAdjust = { navController.navigate(practiceSetupRoute(config)) },
                 onDone = { navController.navigateToRoot(AppDestination.Practice) },
             )
@@ -309,6 +340,8 @@ const val ROUTE_TRANSPOSE = "transpose-capo"
 const val ROUTE_PROGRESSIONS = "progressions"
 const val ROUTE_METRONOME = "metronome"
 const val ROUTE_AI_SETTINGS = "ai-settings"
+const val ROUTE_PRACTICE_PROGRESS = "practice-progress"
+const val ROUTE_DATA_BACKUP = "data-backup"
 
 private fun practiceArguments() = listOf(
     navArgument("mode") { type = NavType.StringType },
@@ -320,14 +353,21 @@ private fun practiceArguments() = listOf(
     navArgument("accent") { type = NavType.BoolType },
     navArgument("barre") { type = NavType.BoolType },
     navArgument("maxFret") { type = NavType.IntType },
+    navArgument("progressionId") { type = NavType.StringType; defaultValue = "" },
+    navArgument("progressionRhythm") { type = NavType.BoolType; defaultValue = false },
 )
 
 private fun practiceResultArguments() = listOf(
     navArgument("seconds") { type = NavType.IntType },
-    navArgument("count") { type = NavType.IntType },
+    navArgument("attempts") { type = NavType.IntType },
+    navArgument("successes") { type = NavType.IntType },
+    navArgument("failures") { type = NavType.IntType },
     navArgument("streak") { type = NavType.IntType },
     navArgument("symbols") { type = NavType.StringType },
-    navArgument("previous") { type = NavType.IntType },
+    navArgument("previousRate") { type = NavType.IntType },
+    navArgument("hardest") { type = NavType.StringType },
+    navArgument("suggestedBpm") { type = NavType.IntType },
+    navArgument("suggestion") { type = NavType.StringType },
     navArgument("mode") { type = NavType.StringType },
     navArgument("goal") { type = NavType.IntType },
     navArgument("bpm") { type = NavType.IntType },
@@ -336,6 +376,8 @@ private fun practiceResultArguments() = listOf(
     navArgument("accent") { type = NavType.BoolType },
     navArgument("barre") { type = NavType.BoolType },
     navArgument("maxFret") { type = NavType.IntType },
+    navArgument("progressionId") { type = NavType.StringType; defaultValue = "" },
+    navArgument("progressionRhythm") { type = NavType.BoolType; defaultValue = false },
 )
 
 private inline fun <reified T : Enum<T>> enumValue(raw: String?, fallback: T): T =

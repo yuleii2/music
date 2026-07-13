@@ -24,6 +24,7 @@ import com.k2.music.ui.navigation.navigateToRoot
 import com.k2.music.ui.navigation.chordDetailRoute
 import com.k2.music.ui.navigation.progressionEditorByIdRoute
 import com.k2.music.ui.theme.MusicTheme
+import com.k2.music.ui.learning.OnboardingRoute
 
 @Composable
 fun MusicApp(appContainer: AppContainer) {
@@ -49,6 +50,16 @@ fun MusicApp(appContainer: AppContainer) {
 
 @Composable
 private fun ReadyApp(appContainer: AppContainer, services: CoreServices) {
+    val learningProfile by appContainer.learningProfileStore.profile.collectAsStateWithLifecycle()
+    if (!learningProfile.onboardingCompleted) {
+        OnboardingRoute(
+            appContainer.learningProfileStore,
+            appContainer.appPreferences,
+            services.practicePreferencesStore,
+            learningProfile.updatedAt,
+        )
+        return
+    }
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
     val backStackEntry by navController.currentBackStackEntryAsState()

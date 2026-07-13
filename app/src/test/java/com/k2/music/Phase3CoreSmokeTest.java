@@ -1,6 +1,10 @@
 package com.k2.music;
 
 import java.io.File;
+import java.io.DataOutputStream;
+import java.io.DataInputStream;
+import java.io.FileOutputStream;
+import java.io.FileInputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,6 +29,7 @@ public final class Phase3CoreSmokeTest {
         testMetronomeAbsoluteTiming();
         testPracticePreferencesStore();
         testPracticeRecordSummaries();
+        testTrustedPracticeRecordsAndLegacyMigration();
         testVoicingRecommendations();
         System.out.println("Phase 3 core smoke test passed.");
     }
@@ -257,6 +262,104 @@ public final class Phase3CoreSmokeTest {
         require(store.delete("old"), "Practice delete should remove an existing record.");
     }
 
+    private static void testTrustedPracticeRecordsAndLegacyMigration() throws Exception {
+        File directory = Files.createTempDirectory("k2-trusted-practice").toFile();
+        TransitionAttemptStore attempts = new TransitionAttemptStore(new File(directory, "attempts.bin"));
+        TransitionAttempt cToG = new TransitionAttempt(
+                "a1", "session-v2", 10L, "C", "G", "c-open", "g-open", 60, "4/4",
+                PracticeSession.SwitchMode.EACH_MEASURE, true, 125L,
+                PracticeSession.Type.TWO_CHORD_TRANSITION
+        );
+        TransitionAttempt gToC = new TransitionAttempt(
+                "a2", "session-v2", 20L, "G", "C", "g-open", "c-open", 60, "4/4",
+                PracticeSession.SwitchMode.EACH_MEASURE, false, null,
+                PracticeSession.Type.TWO_CHORD_TRANSITION
+        );
+        attempts.save(cToG);
+        attempts.save(gToC);
+        attempts.save(cToG);
+        require(attempts.list().size() == 2, "Stable attempt ids must make repeated saves idempotent.");
+        requireEquals("C", attempts.forSession("session-v2").get(0).fromChord,
+                "Attempts should retain their directional source chord.");
+        requireEquals("G", attempts.forSession("session-v2").get(1).fromChord,
+                "C to G and G to C must remain separate records.");
+
+        PracticeRecordStore records = new PracticeRecordStore(new File(directory, "records-v2.bin"));
+        PracticeSession trusted = PracticeSession.recorded(
+                "session-v2", 1_000L, 61_000L, PracticeSession.Type.TWO_CHORD_TRANSITION,
+                Arrays.asList("C", "G"), 60, "4/4", PracticeSession.SwitchMode.EACH_MEASURE,
+                60, 58, 2, 1, 1, 1, "progression-1", true
+        );
+        records.save(trusted);
+        PracticeSession loaded = records.read("session-v2");
+        require(!loaded.legacy && loaded.attemptCount == 2 && loaded.successCount == 1
+                        && loaded.failureCount == 1
+                        && loaded.sourceProgressionId.equals("progression-1") && loaded.useProgressionRhythm,
+                "V3 session counts and source progression should round trip without inferred successes.");
+
+        File versionTwoFile = new File(directory, "v2-records.bin");
+        try (DataOutputStream output = new DataOutputStream(new FileOutputStream(versionTwoFile))) {
+            output.writeInt(0x4B325052);
+            output.writeInt(2);
+            output.writeInt(1);
+            BinaryStoreSupport.writeString(output, "v2");
+            output.writeLong(1_000L);
+            output.writeLong(61_000L);
+            BinaryStoreSupport.writeString(output, PracticeSession.Type.TWO_CHORD_TRANSITION.name());
+            output.writeInt(60);
+            BinaryStoreSupport.writeString(output, "4/4");
+            BinaryStoreSupport.writeString(output, PracticeSession.SwitchMode.EACH_MEASURE.name());
+            output.writeInt(60);
+            output.writeInt(58);
+            output.writeInt(2);
+            output.writeInt(1);
+            output.writeInt(1);
+            output.writeInt(1);
+            output.writeInt(0);
+            output.writeBoolean(false);
+            output.writeInt(2);
+            BinaryStoreSupport.writeString(output, "C");
+            BinaryStoreSupport.writeString(output, "G");
+        }
+        PracticeSession versionTwo = new PracticeRecordStore(versionTwoFile).read("v2");
+        require(versionTwo.sourceProgressionId.isEmpty() && !versionTwo.useProgressionRhythm,
+                "Schema V2 sessions should migrate with an empty source progression.");
+        try (DataInputStream input = new DataInputStream(new FileInputStream(versionTwoFile))) {
+            require(input.readInt() == 0x4B325052 && input.readInt() == PracticeRecordStore.SCHEMA_VERSION,
+                    "Opening a V2 record store should atomically migrate it to schema V3.");
+        }
+
+        File legacyFile = new File(directory, "legacy-records.bin");
+        try (DataOutputStream output = new DataOutputStream(new FileOutputStream(legacyFile))) {
+            output.writeInt(0x4B325052);
+            output.writeInt(1);
+            output.writeInt(1);
+            BinaryStoreSupport.writeString(output, "legacy");
+            output.writeLong(100L);
+            BinaryStoreSupport.writeString(output, PracticeSession.Type.PROGRESSION_LOOP.name());
+            output.writeInt(80);
+            output.writeInt(30);
+            output.writeInt(4);
+            output.writeInt(3);
+            output.writeInt(2);
+            BinaryStoreSupport.writeString(output, "C");
+            BinaryStoreSupport.writeString(output, "G");
+        }
+        PracticeSession legacy = new PracticeRecordStore(legacyFile).read("legacy");
+        require(legacy.legacy, "V1 records must be explicitly marked legacy.");
+        require(legacy.attemptCount == 0 && legacy.successCount == 0 && legacy.failureCount == 0,
+                "V1 completions must not be migrated as 100 percent successful attempts.");
+        require(legacy.completionCount == 4, "Legacy completion history should remain readable.");
+        PracticeSummary legacySummary = new PracticeRecordStore(legacyFile)
+                .summarize(1_000L, TimeZone.getTimeZone("UTC"));
+        require(legacySummary.lastSevenDaysCompletionCount == 0 && legacySummary.bestCompletionCount == 0,
+                "Legacy counters must not leak into trusted success or best-streak analytics.");
+        try (DataInputStream input = new DataInputStream(new FileInputStream(legacyFile))) {
+            require(input.readInt() == 0x4B325052 && input.readInt() == PracticeRecordStore.SCHEMA_VERSION,
+                    "Opening a V1 record store should atomically migrate it to schema V2.");
+        }
+    }
+
     private static void testVoicingRecommendations() {
         Voicing amOpen = voicing("Am open", new int[]{-1, 0, 2, 2, 1, 0}, new int[]{0, 0, 2, 3, 1, 0}, false, false, 1);
         Voicing fBarre = voicing("F full barre", new int[]{1, 3, 3, 2, 1, 1}, new int[]{1, 3, 4, 2, 1, 1}, true, false, 4);
@@ -357,14 +460,20 @@ public final class Phase3CoreSmokeTest {
             int completions,
             int streak
     ) {
-        return new PracticeSession(
+        return PracticeSession.recorded(
                 id,
                 startedAt,
+                startedAt + duration * 1_000L,
                 PracticeSession.Type.PROGRESSION_LOOP,
                 chords,
                 80,
+                "4/4",
+                PracticeSession.SwitchMode.EACH_MEASURE,
+                duration,
                 duration,
                 completions,
+                completions,
+                0,
                 streak
         );
     }

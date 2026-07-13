@@ -31,6 +31,8 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,6 +77,7 @@ import com.k2.music.ui.model.ChordUiModel
 import com.k2.music.ui.model.VoicingUiModel
 import com.k2.music.ui.theme.LocalMusicMotion
 import com.k2.music.ui.navigation.sharedChordBounds
+import com.k2.music.ui.preferences.LocalExperienceCapabilities
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -86,6 +89,8 @@ fun ChordDetailRoute(
     onExportCurrent: (String, Int) -> Unit,
     onExportAll: (String) -> Unit,
     onExplainWithAi: (String) -> Unit,
+    onStartPractice: (String) -> Unit,
+    onAddProgression: (String) -> Unit,
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(ChordDetailViewModel::class) { handle ->
@@ -99,6 +104,13 @@ fun ChordDetailRoute(
     }
     val viewModel: ChordDetailViewModel = viewModel(factory = factory)
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val capabilities = LocalExperienceCapabilities.current
+    LaunchedEffect(capabilities, state.chord?.symbol) {
+        viewModel.applyExperienceMode(
+            capabilities.showAdvancedTheoryByDefault,
+            capabilities.showAllVoicingsByDefault,
+        )
+    }
     LaunchedEffect(viewModel) {
         viewModel.effects.collectLatest { effect ->
             when (effect) {
@@ -119,6 +131,8 @@ fun ChordDetailRoute(
         onExportCurrent = { state.chord?.let { onExportCurrent(it.symbol, state.selectedVoicingIndex) } },
         onExportAll = { state.chord?.let { onExportAll(it.symbol) } },
         onExplainWithAi = { state.chord?.let { onExplainWithAi(it.symbol) } },
+        onStartPractice = { state.chord?.let { onStartPractice(it.symbol) } },
+        onAddProgression = { state.chord?.let { onAddProgression(it.symbol) } },
     )
 }
 
@@ -137,6 +151,8 @@ fun ChordDetailScreen(
     onExportCurrent: () -> Unit,
     onExportAll: () -> Unit,
     onExplainWithAi: () -> Unit,
+    onStartPractice: () -> Unit,
+    onAddProgression: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -156,6 +172,24 @@ fun ChordDetailScreen(
                         Icon(Icons.Rounded.MoreVert, contentDescription = "更多操作")
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("使用该和弦开始练习") },
+                            leadingIcon = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
+                            enabled = chord != null,
+                            onClick = { menuExpanded = false; onStartPractice() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("加入和弦进行") },
+                            leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                            enabled = chord != null,
+                            onClick = { menuExpanded = false; onAddProgression() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("查看适合的切换练习") },
+                            leadingIcon = { Icon(Icons.Rounded.School, contentDescription = null) },
+                            enabled = chord != null,
+                            onClick = { menuExpanded = false; onStartPractice() },
+                        )
                         DropdownMenuItem(
                             text = { Text(if (state.familiar) "取消熟悉按法" else "标记为熟悉按法") },
                             leadingIcon = { Icon(Icons.Rounded.School, contentDescription = null) },
@@ -241,6 +275,15 @@ private fun DetailContent(
     onSelectVoicing: (Int) -> Unit,
     onToggleTheory: () -> Unit,
 ) {
+    val capabilities = LocalExperienceCapabilities.current
+    val visibleIndices = if (capabilities.showAllVoicingsByDefault) {
+        chord.voicings.indices.toList()
+    } else {
+        listOf(chord.voicings.indexOfFirst { it.recommended }.takeIf { it >= 0 } ?: 0)
+            .filter { it in chord.voicings.indices }
+    }
+    val visibleChord = chord.copy(voicings = visibleIndices.map { chord.voicings[it] })
+    val visibleSelected = visibleIndices.indexOf(state.selectedVoicingIndex).coerceAtLeast(0)
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag("chord_detail_content"),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
@@ -271,7 +314,9 @@ private fun DetailContent(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item("root") { SummaryPill("根音", chord.root) }
                 item("notes") { SummaryPill("组成音", chord.notes.joinToString(" · ")) }
-                item("intervals") { SummaryPill("音程", chord.intervals.joinToString(" · ")) }
+                if (capabilities.showTechnicalLabels) {
+                    item("intervals") { SummaryPill("音程", chord.intervals.joinToString(" · ")) }
+                }
             }
         }
         if (chord.voicings.isEmpty()) {
@@ -281,15 +326,17 @@ private fun DetailContent(
         } else {
             item("fretboard") {
                 key(chord.symbol) {
-                    VoicingPager(chord, state.selectedVoicingIndex, onSelectVoicing)
+                    VoicingPager(visibleChord, visibleSelected) { visible ->
+                        visibleIndices.getOrNull(visible)?.let(onSelectVoicing)
+                    }
                 }
             }
             item("selector") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(chord.voicings, key = { _, voicing -> voicing.id }) { index, voicing ->
+                    itemsIndexed(visibleChord.voicings, key = { _, voicing -> voicing.id }) { index, voicing ->
                         FilterChip(
-                            selected = index == state.selectedVoicingIndex,
-                            onClick = { onSelectVoicing(index) },
+                            selected = index == visibleSelected,
+                            onClick = { visibleIndices.getOrNull(index)?.let(onSelectVoicing) },
                             label = { Text("${index + 1}. ${voicing.name}") },
                         )
                     }
@@ -360,6 +407,7 @@ private fun VoicingPager(chord: ChordUiModel, selectedIndex: Int, onSelectVoicin
 
 @Composable
 private fun VoicingInfo(voicing: VoicingUiModel, familiar: Boolean) {
+    val capabilities = LocalExperienceCapabilities.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AdaptiveControlGroup {
             ChordTag(voicing.difficulty)
@@ -378,6 +426,20 @@ private fun VoicingInfo(voicing: VoicingUiModel, familiar: Boolean) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (!capabilities.showTechnicalLabels) {
+            val fingers = voicing.fingers.mapIndexedNotNull { index, finger ->
+                finger.takeIf { it > 0 }?.let { "${6 - index} 弦用 $it 指" }
+            }
+            if (fingers.isNotEmpty()) Text("建议手指：${fingers.joinToString("，")}")
+            Text(
+                when {
+                    voicing.barre -> "常见错误：食指横按没有压实；先逐弦检查声音。"
+                    voicing.isOpen -> "为什么推荐：包含空弦，手型适合入门和常见伴奏。"
+                    else -> "为什么推荐：这是当前资料中的常用按法。"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         if (voicing.description.isNotBlank()) Text(voicing.description, style = MaterialTheme.typography.bodyLarge)
     }
 }

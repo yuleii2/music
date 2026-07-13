@@ -96,9 +96,9 @@ public final class PracticePreferences {
     public static PracticePreferences defaults() {
         return new PracticePreferences(
                 Proficiency.BEGINNER,
-                true,
-                12,
-                80,
+                false,
+                5,
+                50,
                 TimeSignature.FOUR_FOUR,
                 PlaybackMode.WHOLE_CHORD,
                 true

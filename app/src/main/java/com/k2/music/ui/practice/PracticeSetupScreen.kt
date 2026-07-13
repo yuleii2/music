@@ -45,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.k2.music.ui.CoreServices
@@ -55,6 +57,7 @@ import com.k2.music.ui.gateway.PracticeConfigUi
 import com.k2.music.ui.gateway.PracticeModeUi
 import com.k2.music.ui.gateway.PracticeSwitchUi
 import com.k2.music.ui.theme.LocalMusicMotion
+import com.k2.music.ui.preferences.LocalExperienceCapabilities
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -66,7 +69,13 @@ fun PracticeSetupRoute(
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(PracticeSetupViewModel::class) { handle ->
-            PracticeSetupViewModel(services.practiceGateway, handle)
+            PracticeSetupViewModel(
+                services.practiceGateway,
+                handle,
+                services.userLibraryGateway,
+                services.progressionGateway,
+                services.practicePreferencesStore,
+            )
         }
     }
     val viewModel: PracticeSetupViewModel = viewModel(factory = factory)
@@ -84,6 +93,9 @@ fun PracticeSetupRoute(
         onBack,
         viewModel::setMode,
         viewModel::setSymbols,
+        viewModel::addSymbol,
+        viewModel::removeSymbol,
+        viewModel::useProgression,
         viewModel::setDuration,
         viewModel::setBpm,
         viewModel::setTimeSignature,
@@ -102,6 +114,9 @@ fun PracticeSetupScreen(
     onBack: () -> Unit,
     onMode: (PracticeModeUi) -> Unit,
     onSymbols: (String) -> Unit,
+    onAddSymbol: (String) -> Unit,
+    onRemoveSymbol: (String) -> Unit,
+    onUseProgression: (PracticeProgressionChoice) -> Unit,
     onDuration: (Int) -> Unit,
     onBpm: (Int) -> Unit,
     onTimeSignature: (String) -> Unit,
@@ -112,7 +127,10 @@ fun PracticeSetupScreen(
     onStart: () -> Unit,
 ) {
     val config = state.config
-    var advanced by rememberSaveable { mutableStateOf(false) }
+    val capabilities = LocalExperienceCapabilities.current
+    var advanced by rememberSaveable(capabilities.expandAdvancedPracticeSettings) {
+        mutableStateOf(capabilities.expandAdvancedPracticeSettings)
+    }
     val motion = LocalMusicMotion.current
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("practice_setup_screen"),
@@ -132,6 +150,60 @@ fun PracticeSetupScreen(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            item("presets") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("练习预设", style = MaterialTheme.typography.titleMedium)
+                    AdaptiveControlGroup {
+                        FilterChip(
+                            selected = config.symbols == "C G" && config.bpm == 50 && config.durationSeconds == 60,
+                            onClick = {
+                                onMode(PracticeModeUi.TWO_CHORD); onSymbols("C G"); onBpm(50)
+                                onDuration(60); onSwitchMode(PracticeSwitchUi.EACH_MEASURE)
+                            },
+                            label = { Text("第一次换和弦") },
+                        )
+                        FilterChip(
+                            selected = config.bpm == 60 && config.durationSeconds == 120,
+                            onClick = {
+                                onMode(PracticeModeUi.MULTI_CHORD); onBpm(60); onDuration(120)
+                                onSwitchMode(PracticeSwitchUi.EACH_MEASURE)
+                            },
+                            label = { Text("基础流畅度") },
+                        )
+                        if (state.familiarSymbols.size >= 2) {
+                            val familiar = state.familiarSymbols.take(4).joinToString(" ")
+                            FilterChip(
+                                selected = config.bpm >= 70 && config.mode == PracticeModeUi.RANDOM && config.symbols == familiar,
+                                onClick = {
+                                    onMode(PracticeModeUi.RANDOM); onSymbols(familiar)
+                                    onBpm(maxOf(70, config.bpm + 5)); onDuration(120)
+                                },
+                                label = { Text("速度挑战") },
+                            )
+                        }
+                        state.progressions.firstOrNull()?.let { progression ->
+                            FilterChip(
+                                selected = config.sourceProgressionId == progression.id && config.useProgressionRhythm,
+                                onClick = {
+                                    onUseProgression(progression); onBpm(70); onDuration(120)
+                                },
+                                label = { Text("弹唱准备") },
+                            )
+                        }
+                        state.weakTransitionSymbols?.let { symbols ->
+                            FilterChip(
+                                selected = config.mode == PracticeModeUi.TWO_CHORD && config.symbols == symbols,
+                                onClick = {
+                                    onMode(PracticeModeUi.TWO_CHORD); onSymbols(symbols)
+                                    onBpm((config.bpm - 5).coerceAtLeast(40)); onDuration(120)
+                                    onSwitchMode(PracticeSwitchUi.EACH_MEASURE)
+                                },
+                                label = { Text("薄弱项复习") },
+                            )
+                        }
+                    }
+                }
+            }
             item("mode") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("模式", style = MaterialTheme.typography.titleMedium)
@@ -143,20 +215,51 @@ fun PracticeSetupScreen(
                 }
             }
             item("symbols") {
-                OutlinedTextField(
-                    value = config.symbols,
-                    onValueChange = onSymbols,
-                    modifier = Modifier.fillMaxWidth().testTag("practice_symbols"),
-                    label = { Text("练习和弦") },
-                    supportingText = { Text(if (config.mode == PracticeModeUi.TWO_CHORD) "双和弦模式需要两个和弦" else "使用空格分隔多个和弦") },
-                    minLines = 2,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("选择练习和弦", style = MaterialTheme.typography.titleMedium)
+                    val selected = config.symbols.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+                    if (selected.isNotEmpty()) {
+                        AdaptiveControlGroup {
+                            selected.forEach { symbol ->
+                                FilterChip(
+                                    selected = true,
+                                    onClick = { onRemoveSymbol(symbol) },
+                                    label = { Text("$symbol  ×") },
+                                )
+                            }
+                        }
+                    }
+                    SymbolChoiceSection("最近查看", state.recentSymbols, onAddSymbol)
+                    SymbolChoiceSection("收藏", state.favoriteSymbols, onAddSymbol)
+                    SymbolChoiceSection("已熟悉", state.familiarSymbols, onAddSymbol)
+                    SymbolChoiceSection("推荐", state.recommendedSymbols, onAddSymbol)
+                    if (state.progressions.isNotEmpty()) {
+                        Text("从保存的进行选择", style = MaterialTheme.typography.labelLarge)
+                        AdaptiveControlGroup {
+                            state.progressions.forEach { progression ->
+                                FilterChip(
+                                    selected = config.sourceProgressionId == progression.id,
+                                    onClick = { onUseProgression(progression) },
+                                    label = { Text(progression.name) },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = config.symbols,
+                        onValueChange = onSymbols,
+                        modifier = Modifier.fillMaxWidth().testTag("practice_symbols"),
+                        label = { Text(if (capabilities.showTechnicalLabels) "文本快速输入" else "搜索或手动输入") },
+                        supportingText = { Text(if (config.mode == PracticeModeUi.TWO_CHORD) "双和弦模式需要两个和弦" else "使用空格分隔多个和弦") },
+                        minLines = if (capabilities.showTechnicalLabels) 1 else 2,
+                    )
+                }
             }
             item("duration") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("时长：${config.durationSeconds} 秒", style = MaterialTheme.typography.titleMedium)
                     AdaptiveControlGroup {
-                        listOf(30, 60).forEach { seconds ->
+                        listOf(30, 60, 120, 300).forEach { seconds ->
                             FilterChip(
                                 selected = config.durationSeconds == seconds,
                                 onClick = { onDuration(seconds) },
@@ -164,23 +267,47 @@ fun PracticeSetupScreen(
                             )
                         }
                         FilterChip(
-                            selected = config.durationSeconds !in listOf(30, 60),
+                            selected = config.durationSeconds !in listOf(30, 60, 120, 300),
                             onClick = { onDuration(120) },
                             label = { Text("自定义") },
                         )
                     }
-                    Slider(
-                        value = config.durationSeconds.toFloat(),
-                        onValueChange = { onDuration(it.toInt()) },
-                        valueRange = 5f..600f,
-                        steps = 118,
-                    )
+                    if (capabilities.showTechnicalLabels) {
+                        Slider(
+                            value = config.durationSeconds.toFloat(),
+                            onValueChange = { onDuration(it.toInt()) },
+                            valueRange = 5f..600f,
+                            steps = 118,
+                        )
+                    }
                 }
             }
             item("tempo") {
                 Card {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("${config.bpm} BPM", style = MaterialTheme.typography.titleLarge)
+                        AdaptiveControlGroup {
+                            listOf(-5, -1, 1, 5).forEach { delta ->
+                                TextButton(onClick = { onBpm(config.bpm + delta) }) {
+                                    Text(if (delta > 0) "+$delta" else "$delta")
+                                }
+                            }
+                            listOf(40, 50, 60, 70, 80, 100).forEach { value ->
+                                FilterChip(
+                                    selected = config.bpm == value,
+                                    onClick = { onBpm(value) },
+                                    label = { Text(value.toString()) },
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = config.bpm.toString(),
+                            onValueChange = { it.toIntOrNull()?.let(onBpm) },
+                            label = { Text("输入 BPM") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         Slider(
                             value = config.bpm.toFloat(),
                             onValueChange = { onBpm(it.toInt()) },
@@ -195,6 +322,12 @@ fun PracticeSetupScreen(
                                     label = { Text(signature) },
                                 )
                             }
+                        }
+                        if (config.useProgressionRhythm) {
+                            Text(
+                                "当前沿用保存进行的每步节奏；点选下方切换方式会改为统一节奏。",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
                         }
                         AdaptiveControlGroup {
                             PracticeSwitchUi.entries.forEach { mode ->
@@ -241,6 +374,13 @@ fun PracticeSetupScreen(
                 }
             }
             state.error?.let { item("error") { InlineMessage(it, isError = true) } }
+            item("summary") {
+                InlineMessage(
+                    "练习 ${config.symbols.ifBlank { "所选和弦" }}，" +
+                        "${if (config.useProgressionRhythm) "按保存的进行节奏循环" else config.switchMode.label}，" +
+                        "${config.bpm} BPM，持续 ${if (config.durationSeconds % 60 == 0) "${config.durationSeconds / 60} 分钟" else "${config.durationSeconds} 秒"}。",
+                )
+            }
             item("start") {
                 Button(
                     onClick = onStart,
@@ -253,6 +393,17 @@ fun PracticeSetupScreen(
                     Text("开始练习")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SymbolChoiceSection(title: String, symbols: List<String>, onAdd: (String) -> Unit) {
+    if (symbols.isEmpty()) return
+    Text(title, style = MaterialTheme.typography.labelLarge)
+    AdaptiveControlGroup {
+        symbols.distinct().take(10).forEach { symbol ->
+            FilterChip(selected = false, onClick = { onAdd(symbol) }, label = { Text(symbol) })
         }
     }
 }

@@ -10,6 +10,7 @@ import com.k2.music.ui.gateway.AiGateway
 import com.k2.music.ui.gateway.AiResultUi
 import com.k2.music.ui.gateway.AiSettingsUi
 import com.k2.music.ui.gateway.AiTaskUi
+import com.k2.music.ui.gateway.AttemptProgressUi
 import com.k2.music.ui.gateway.ExportFormatUi
 import com.k2.music.ui.gateway.ExportGateway
 import com.k2.music.ui.gateway.ExportProgressUi
@@ -81,6 +82,36 @@ class Phase5ViewModelTest {
     }
 
     @Test
+    fun practiceSuccessAndFailureProduceDifferentTrustedCounts() = runTest(mainDispatcherRule.dispatcher) {
+        val gateway = FakePracticeGateway()
+        val viewModel = PracticeSessionViewModel(
+            gateway,
+            FakeTransport(),
+            practiceHandle(),
+            MutablePracticeClock(1_000L),
+        )
+        runCurrent()
+
+        viewModel.recordSuccess()
+        runCurrent()
+        assertEquals(1, viewModel.state.value.completionCount)
+        assertEquals(1, viewModel.state.value.successCount)
+        assertEquals(1, viewModel.state.value.currentStreak)
+
+        viewModel.recordFailure()
+        runCurrent()
+        assertEquals(2, viewModel.state.value.completionCount)
+        assertEquals(1, viewModel.state.value.failureCount)
+        assertEquals(0, viewModel.state.value.currentStreak)
+        assertEquals(1, viewModel.state.value.bestStreak)
+
+        viewModel.pause()
+        viewModel.recordSuccess()
+        runCurrent()
+        assertEquals(2, viewModel.state.value.completionCount)
+    }
+
+    @Test
     fun aiUiStateNeverContainsFullApiKeyAndCancellationReachesGateway() = runTest(mainDispatcherRule.dispatcher) {
         val gateway = FakeAiGateway()
         val settings = AiSettingsViewModel(gateway)
@@ -131,19 +162,62 @@ private class MutablePracticeClock(var now: Long) : PracticeElapsedClock {
 }
 
 private class FakePracticeGateway(private val prepareError: String? = null) : PracticeGateway {
+    private var progress = AttemptProgressUi()
     override suspend fun home() = PracticeHomeData(PracticeSummaryUi(), PracticeConfigUi())
     override suspend fun summary() = PracticeSummaryUi()
+    override suspend fun dailyPlan(
+        profile: com.k2.music.ui.learning.LearningProfile,
+        favorites: Set<String>,
+        availableChords: List<com.k2.music.ui.model.ChordUiModel>,
+    ) = com.k2.music.ui.learning.DailyPracticePlan(0L, profile.dailyTargetMinutes, emptyList(), emptyList())
     override suspend fun prepare(config: PracticeConfigUi): ProgressionUiModel {
         prepareError?.let { throw IllegalArgumentException(it) }
         return practiceProgression(config)
     }
     override suspend fun savePreferences(config: PracticeConfigUi) = Unit
+    override suspend fun sessionProgress(sessionId: String): AttemptProgressUi = progress
+    override suspend fun recordAttempt(
+        sessionId: String,
+        config: PracticeConfigUi,
+        fromChord: String,
+        toChord: String,
+        fromVoicingId: String?,
+        toVoicingId: String?,
+        success: Boolean,
+        confirmationOffsetMillis: Long?,
+    ): AttemptProgressUi {
+        val streak = if (success) progress.currentStreak + 1 else 0
+        progress = progress.copy(
+            attemptCount = progress.attemptCount + 1,
+            successCount = progress.successCount + if (success) 1 else 0,
+            failureCount = progress.failureCount + if (success) 0 else 1,
+            currentStreak = streak,
+            bestStreak = maxOf(progress.bestStreak, streak),
+        )
+        return progress
+    }
+    override suspend fun discardSession(sessionId: String) { progress = AttemptProgressUi() }
     override suspend fun saveResult(
+        sessionId: String,
+        startedAtEpochMillis: Long,
         config: PracticeConfigUi,
         actualSeconds: Int,
-        completionCount: Int,
-        bestStreak: Int,
-    ) = PracticeResultUi("result", actualSeconds, completionCount, bestStreak, listOf("C", "G"), null)
+    ) = PracticeResultUi(
+        "result",
+        actualSeconds,
+        progress.attemptCount,
+        progress.successCount,
+        progress.failureCount,
+        progress.bestStreak,
+        listOf("C", "G"),
+        null,
+        null,
+        com.k2.music.ui.gateway.DifficultySuggestionUi(
+            com.k2.music.ui.gateway.DifficultyAction.NEED_MORE_DATA,
+            config.bpm,
+            "数据不足",
+        ),
+    )
 }
 
 private class FakeTransport : ProgressionTransport {
@@ -155,6 +229,10 @@ private class FakeTransport : ProgressionTransport {
             status = TransportStatus.PLAYING,
             progressionId = progression.id,
             title = progression.name,
+            stepIndex = 0,
+            currentSymbol = progression.steps.first().chordSymbol,
+            nextSymbol = progression.steps.getOrNull(1)?.chordSymbol.orEmpty(),
+            stepAnchorNanos = 1_000_000_000L,
         )
     }
     override fun toggle() {

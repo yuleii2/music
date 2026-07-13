@@ -6,6 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.k2.music.ui.gateway.ChordCatalogGateway
 import com.k2.music.ui.gateway.UserLibraryGateway
 import com.k2.music.ui.model.ChordUiModel
+import com.k2.music.ui.gateway.PracticeGateway
+import com.k2.music.ui.gateway.PracticeSummaryUi
+import com.k2.music.ui.learning.DailyPracticePlan
+import com.k2.music.ui.learning.DailyTaskType
+import com.k2.music.ui.learning.LearningProfile
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
@@ -27,6 +32,8 @@ data class HomeUiState(
     val searchError: String? = null,
     val recent: List<ChordUiModel> = emptyList(),
     val recommendations: List<ChordUiModel> = emptyList(),
+    val practiceSummary: PracticeSummaryUi = PracticeSummaryUi(),
+    val dailyPlan: DailyPracticePlan? = null,
 )
 
 sealed interface HomeEffect {
@@ -38,6 +45,8 @@ sealed interface HomeEffect {
 class HomeViewModel(
     private val catalog: ChordCatalogGateway,
     private val userLibrary: UserLibraryGateway,
+    private val practiceGateway: PracticeGateway,
+    private val learningProfile: () -> LearningProfile,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
@@ -152,13 +161,22 @@ class HomeViewModel(
             _state.value = _state.value.copy(loading = true)
             val recentSymbols = userLibrary.history().take(8)
             val recent = recentSymbols.mapNotNull { catalog.find(it).chord }
-            val recommendationSymbols = listOf("C", "Am", "G", "Fmaj7", "Dm7", "G/B")
+            val favorites = userLibrary.favorites().toSet()
+            val allChords = catalog.allChords()
+            val profile = learningProfile()
+            val plan = practiceGateway.dailyPlan(profile, favorites, allChords)
+            val recommendationSymbols = plan.tasks
+                .filter { it.type == DailyTaskType.LEARN_NEW_CHORD }
+                .mapNotNull { it.chordSymbol }
             val recommendations = recommendationSymbols.mapNotNull { catalog.find(it).chord }
+            val practiceSummary = practiceGateway.summary()
             _state.value = _state.value.copy(
                 loading = false,
                 fallbackMessage = catalog.dataLoadMessage().takeIf { catalog.usesFallbackData() },
                 recent = decorate(recent),
                 recommendations = decorate(recommendations),
+                practiceSummary = practiceSummary,
+                dailyPlan = plan,
             )
         }
     }

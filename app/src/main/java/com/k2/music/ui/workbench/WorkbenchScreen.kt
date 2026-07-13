@@ -53,7 +53,7 @@ fun WorkbenchScreen(
 ) {
     val tools = listOf(
         ToolDefinition("recognition", "反向识别", "在六弦指板上点按，或输入音符来寻找和弦。", "离线 · 最多 5 个候选", Icons.Rounded.GraphicEq),
-        ToolDefinition("transpose", "移调与变调夹", "移动单个和弦或整段进行，并同步处理 slash bass。", "离线 · -11…+11", Icons.Rounded.SwapHoriz),
+        ToolDefinition("transpose", "移调与变调夹", "移动单个和弦或整段进行，并同步处理指定低音。", "离线 · -11…+11", Icons.Rounded.SwapHoriz),
         ToolDefinition("progressions", "和弦进行", "编排步骤、推荐按法、设置节拍并播放。", "本地保存", Icons.Rounded.Piano),
         ToolDefinition("metronome", "节拍器", "用绝对时间锚点保持稳定节拍。", "2/4 · 3/4 · 4/4 · 6/8", Icons.Rounded.MusicNote),
         ToolDefinition("ai", "AI 助手", "可选的建议层；所有结果继续由本地核心验证。", "默认关闭", Icons.Rounded.AutoAwesome),
@@ -71,6 +71,8 @@ fun WorkbenchScreen(
             action()
         }
     }
+    val recentTool = tools.firstOrNull { it.id == recentToolId }
+    val remainingTools = tools.filterNot { it.id == recentTool?.id }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(260.dp),
         modifier = Modifier.fillMaxSize().testTag("workbench_screen"),
@@ -88,7 +90,7 @@ fun WorkbenchScreen(
                 )
             }
         }
-        tools.firstOrNull { it.id == recentToolId }?.let { recent ->
+        recentTool?.let { recent ->
             item(key = "recent_label", span = { GridItemSpan(maxLineSpan) }) {
                 Text("最近使用", style = MaterialTheme.typography.titleMedium)
             }
@@ -99,7 +101,7 @@ fun WorkbenchScreen(
         item(key = "all_label", span = { GridItemSpan(maxLineSpan) }) {
             Text("全部工具", style = MaterialTheme.typography.titleMedium)
         }
-        items(tools, key = { it.id }, contentType = { "tool" }) { tool ->
+        items(remainingTools, key = { it.id }, contentType = { "tool" }) { tool ->
             ToolCard(tool = tool, onClick = actions.getValue(tool.id))
         }
     }

@@ -28,7 +28,11 @@ public final class AiSettingsStore {
     private final SharedPreferences preferences;
 
     public AiSettingsStore(Context context) {
-        preferences = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        this(context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE));
+    }
+
+    AiSettingsStore(SharedPreferences preferences) {
+        this.preferences = preferences;
     }
 
     public synchronized AiSettings load() {

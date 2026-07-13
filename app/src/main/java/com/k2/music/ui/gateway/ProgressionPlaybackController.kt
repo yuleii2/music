@@ -42,6 +42,7 @@ data class ProgressionPlaybackUiState(
     val beatSerial: Long = 0,
     val accentedBeat: Boolean = false,
     val beatAnchorNanos: Long = 0,
+    val stepAnchorNanos: Long = 0,
     val error: String? = null,
 ) {
     val isVisible: Boolean get() = sessionType != PlaybackSessionType.NONE && status != TransportStatus.STOPPED
@@ -109,6 +110,7 @@ class DefaultProgressionTransport(
             override fun onPositionChanged(position: ProgressionPlayer.Position) {
                 if (_state.value.sessionType != PlaybackSessionType.PROGRESSION) return
                 _state.update {
+                    val changedStep = position.stepIndex >= 0 && position.stepIndex != it.stepIndex
                     it.copy(
                         status = position.state.toUiStatus(),
                         currentSymbol = position.currentStep?.chordSymbol.orEmpty(),
@@ -117,6 +119,7 @@ class DefaultProgressionTransport(
                         measureNumber = position.measureNumber,
                         beatNumber = position.beatNumber,
                         stepBeatNumber = position.stepBeatNumber,
+                        stepAnchorNanos = if (changedStep) System.nanoTime() else it.stepAnchorNanos,
                     )
                 }
             }

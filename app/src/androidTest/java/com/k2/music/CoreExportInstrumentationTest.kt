@@ -12,9 +12,60 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import com.k2.music.ui.learning.LearningProfileStore
+import com.k2.music.ui.preferences.AppPreferences
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class CoreExportInstrumentationTest {
+    @Test
+    fun fullBackupRestoresRealPracticeFilesWithoutDoubling() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val repository = ChordRepository()
+        val user = UserChordStore(context, repository)
+        val custom = CustomVoicingStore(context)
+        val progressions = ProgressionStore(ProgressionStore.defaultFile(context.filesDir))
+        val drafts = ProgressionStore(java.io.File(context.filesDir, "progression-drafts-v1.bin"))
+        val practicePreferences = PracticePreferencesStore(PracticePreferencesStore.defaultFile(context.filesDir))
+        val sessions = PracticeRecordStore(PracticeRecordStore.defaultFile(context.filesDir))
+        val attempts = TransitionAttemptStore(TransitionAttemptStore.defaultFile(context.filesDir))
+        val sessionId = "device-backup-session"
+        val attemptId = "device-backup-attempt"
+        sessions.delete(sessionId)
+        attempts.deleteSession(sessionId)
+        val session = PracticeSession.recorded(
+            sessionId, 1L, 2L, PracticeSession.Type.TWO_CHORD_TRANSITION, listOf("C", "G"), 60,
+            "4/4", PracticeSession.SwitchMode.EACH_MEASURE, 60, 60, 1, 1, 0, 1,
+        )
+        val attempt = TransitionAttempt(
+            attemptId, sessionId, 2L, "C", "G", "", "", 60, "4/4",
+            PracticeSession.SwitchMode.EACH_MEASURE, true, 100L, PracticeSession.Type.TWO_CHORD_TRANSITION,
+        )
+        sessions.save(session)
+        attempts.save(attempt)
+        val manager = FullBackupManager(
+            AppPreferences(context), LearningProfileStore(context), user, custom, progressions, drafts,
+            practicePreferences, sessions, attempts, AiSettingsStore(context),
+        )
+        val file = java.io.File(context.cacheDir, "device-full-backup.zip")
+        try {
+            FileOutputStream(file).use { manager.writeBackup(it, 10L) }
+            val preview = FileInputStream(file).use(manager::preview)
+            assertTrue(preview.practiceSessionCount >= 1)
+            sessions.delete(sessionId)
+            attempts.deleteSession(sessionId)
+            FileInputStream(file).use { manager.restore(it, RestoreMode.MERGE, false) }
+            FileInputStream(file).use { manager.restore(it, RestoreMode.MERGE, false) }
+            assertEquals(session, sessions.read(sessionId))
+            assertEquals(1, attempts.forSession(sessionId).count { it.id == attemptId })
+        } finally {
+            sessions.delete(sessionId)
+            attempts.deleteSession(sessionId)
+            file.delete()
+        }
+    }
+
     @Test
     fun customVoicingsAreIncludedByTheComposeExportGateway() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

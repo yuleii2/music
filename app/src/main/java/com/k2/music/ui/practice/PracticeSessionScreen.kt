@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -48,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -59,6 +63,8 @@ import com.k2.music.ui.CoreServices
 import com.k2.music.ui.MusicViewModelFactory
 import com.k2.music.ui.components.FretboardCanvas
 import com.k2.music.ui.components.InlineMessage
+import com.k2.music.ui.components.AdaptiveStat
+import com.k2.music.ui.components.AdaptiveStatGrid
 import com.k2.music.ui.gateway.PracticeConfigUi
 import com.k2.music.ui.gateway.PracticeResultUi
 import com.k2.music.ui.gateway.ProgressionPlaybackUiState
@@ -101,7 +107,8 @@ fun PracticeSessionRoute(
         state = state,
         playback = playback,
         onPauseResume = viewModel::togglePause,
-        onComplete = viewModel::completeOnce,
+        onSuccess = viewModel::recordSuccess,
+        onFailure = viewModel::recordFailure,
         onReset = viewModel::reset,
         onFinish = viewModel::finish,
         onAbandon = {
@@ -116,7 +123,8 @@ fun PracticeSessionScreen(
     state: PracticeSessionUiState,
     playback: ProgressionPlaybackUiState,
     onPauseResume: () -> Unit,
-    onComplete: () -> Unit,
+    onSuccess: () -> Unit,
+    onFailure: () -> Unit,
     onReset: () -> Unit,
     onFinish: () -> Unit,
     onAbandon: () -> Unit,
@@ -169,11 +177,17 @@ fun PracticeSessionScreen(
                 if (useWideLayout) {
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         PracticeChordPanel(current, next, Modifier.weight(1.4f))
-                        PracticeStatusPanel(state, playback, beatScale.value, onComplete, onReset, onFinish, Modifier.weight(1f))
+                        PracticeStatusPanel(state, playback, beatScale.value, onSuccess, onFailure, onReset, onFinish, Modifier.weight(1f))
                     }
                 } else {
-                    PracticeChordPanel(current, next, Modifier.weight(1f))
-                    PracticeStatusPanel(state, playback, beatScale.value, onComplete, onReset, onFinish)
+                    Column(
+                        Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        PracticeChordPanel(current, next)
+                        PracticeStatusPanel(state, playback, beatScale.value, onSuccess, onFailure, onReset, onFinish)
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
             }
         }
@@ -208,7 +222,7 @@ private fun PracticeChordPanel(current: ProgressionStepUi?, next: ProgressionSte
     val motion = LocalMusicMotion.current
     Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(
-            Modifier.fillMaxSize().padding(16.dp),
+            Modifier.fillMaxWidth().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -230,7 +244,7 @@ private fun PracticeChordPanel(current: ProgressionStepUi?, next: ProgressionSte
                     modifier = Modifier.fillMaxWidth().height(300.dp).padding(top = 8.dp),
                 )
             } else {
-                Text("将使用本地组成音播放", style = MaterialTheme.typography.bodyMedium)
+                Text("暂无吉他按法，将播放和弦组成音", style = MaterialTheme.typography.bodyMedium)
             }
             Text("下一和弦：${next?.chordSymbol ?: "结束"}", style = MaterialTheme.typography.titleMedium)
         }
@@ -242,7 +256,8 @@ private fun PracticeStatusPanel(
     state: PracticeSessionUiState,
     playback: ProgressionPlaybackUiState,
     beatScale: Float,
-    onComplete: () -> Unit,
+    onSuccess: () -> Unit,
+    onFailure: () -> Unit,
     onReset: () -> Unit,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
@@ -259,19 +274,37 @@ private fun PracticeStatusPanel(
                 Text("第 ${playback.measureNumber.coerceAtLeast(1)} 小节 · 第 ${playback.beatNumber.coerceAtLeast(1)} 拍")
             }
         }
+        AdaptiveStatGrid(
+            listOf(
+                AdaptiveStat("尝试", state.completionCount.toString()),
+                AdaptiveStat("成功", state.successCount.toString()),
+                AdaptiveStat("失败", state.failureCount.toString()),
+                AdaptiveStat("当前连续", state.currentStreak.toString()),
+                AdaptiveStat("最佳连续", state.bestStreak.toString()),
+            ),
+            modifier = Modifier.testTag("practice_stats").semantics {
+                contentDescription = "尝试 ${state.completionCount}，成功 ${state.successCount}，失败 ${state.failureCount}"
+            },
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SessionStat("完成", state.completionCount.toString(), Modifier.weight(1f))
-            SessionStat("连续", state.currentStreak.toString(), Modifier.weight(1f))
-            SessionStat("最佳", state.bestStreak.toString(), Modifier.weight(1f))
-        }
-        Button(
-            onClick = onComplete,
-            enabled = !state.paused && !state.finishing,
-            modifier = Modifier.fillMaxWidth().height(58.dp).testTag("practice_complete_once"),
-        ) {
-            Icon(Icons.Rounded.Check, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("完成一次")
+            Button(
+                onClick = onSuccess,
+                enabled = !state.paused && !state.finishing && !state.recordingResult,
+                modifier = Modifier.weight(1f).height(68.dp).testTag("practice_success"),
+            ) {
+                Icon(Icons.Rounded.Check, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("跟上了")
+            }
+            OutlinedButton(
+                onClick = onFailure,
+                enabled = !state.paused && !state.finishing && !state.recordingResult,
+                modifier = Modifier.weight(1f).height(68.dp).testTag("practice_failure"),
+            ) {
+                Icon(Icons.Rounded.Close, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("没跟上")
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = onReset, modifier = Modifier.weight(1f)) {
@@ -290,23 +323,19 @@ private fun PracticeStatusPanel(
 }
 
 @Composable
-private fun SessionStat(label: String, value: String, modifier: Modifier) {
-    Card(modifier = modifier) {
-        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.headlineLarge)
-            Text(label, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@Composable
 fun PracticeResultScreen(
     seconds: Int,
-    count: Int,
+    attempts: Int,
+    successes: Int,
+    failures: Int,
     streak: Int,
     symbols: String,
-    previous: Int?,
+    previousRate: Double?,
+    hardestTransition: String?,
+    suggestedBpm: Int,
+    suggestionReason: String,
     onAgain: () -> Unit,
+    onSuggestedAgain: () -> Unit,
     onAdjust: () -> Unit,
     onDone: () -> Unit,
 ) {
@@ -320,20 +349,42 @@ fun PracticeResultScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("实际时长：${seconds / 60} 分 ${seconds % 60} 秒", style = MaterialTheme.typography.titleLarge)
-                Text("完成次数：$count", style = MaterialTheme.typography.titleLarge)
-                Text("最佳连续：$streak", style = MaterialTheme.typography.titleLarge)
+                AdaptiveStatGrid(
+                    listOf(
+                        AdaptiveStat("总尝试", attempts.toString()),
+                        AdaptiveStat("成功", successes.toString()),
+                        AdaptiveStat("失败", failures.toString()),
+                        AdaptiveStat("成功率", if (attempts == 0) "尚未记录结果" else "%.0f%%".format(successes * 100.0 / attempts)),
+                        AdaptiveStat("最佳连续", streak.toString()),
+                    ),
+                    modifier = Modifier.testTag("practice_result_stats").semantics {
+                        contentDescription = "总尝试 $attempts，成功 $successes，失败 $failures，最佳连续 $streak"
+                    },
+                )
                 Text("练习和弦：$symbols", style = MaterialTheme.typography.bodyLarge)
-                previous?.let {
-                    val delta = count - it
+                hardestTransition?.let { Text("本次最困难切换：$it", style = MaterialTheme.typography.bodyLarge) }
+                previousRate?.let {
+                    val currentRate = if (attempts == 0) null else successes.toDouble() / attempts
+                    val delta = currentRate?.minus(it)
                     Text(
-                        if (delta >= 0) "比最近一次多完成 $delta 次" else "比最近一次少完成 ${-delta} 次",
+                        when {
+                            delta == null -> "本次尚未记录结果，无法比较成功率"
+                            delta >= 0 -> "比最近一次成功率提高 ${"%.0f".format(delta * 100)} 个百分点"
+                            else -> "比最近一次成功率降低 ${"%.0f".format(-delta * 100)} 个百分点"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+                Text("难度建议：$suggestionReason", style = MaterialTheme.typography.bodyLarge)
             }
         }
         Spacer(Modifier.height(20.dp))
         Button(onClick = onAgain, modifier = Modifier.fillMaxWidth()) { Text("再练一次") }
+        if (suggestedBpm > 0) {
+            Button(onClick = onSuggestedAgain, modifier = Modifier.fillMaxWidth()) {
+                Text("使用建议（$suggestedBpm BPM）再练一次")
+            }
+        }
         TextButton(onClick = onAdjust) { Text("调整设置") }
         TextButton(onClick = onDone) { Text("完成") }
     }

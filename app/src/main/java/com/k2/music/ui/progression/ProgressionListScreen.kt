@@ -144,7 +144,7 @@ fun ProgressionListScreen(
         ) {
             item("intro") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("编排、推荐按法并跟随绝对时间轴播放。", style = MaterialTheme.typography.bodyLarge)
+                    Text("编排和弦、推荐按法并稳定跟随节拍播放。", style = MaterialTheme.typography.bodyLarge)
                     AdaptiveControlGroup {
                         FilterChip(
                             selected = !showPresets,

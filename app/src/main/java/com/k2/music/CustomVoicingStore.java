@@ -3,13 +3,12 @@ package com.k2.music;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Local CRUD store kept separate from the read-only built-in voicing assets. */
 public final class CustomVoicingStore {
@@ -55,6 +54,17 @@ public final class CustomVoicingStore {
         return removed;
     }
 
+    public synchronized void replaceAll(List<CustomVoicing> values) {
+        List<CustomVoicing> normalized = new ArrayList<>();
+        if (values != null) {
+            for (CustomVoicing value : values) {
+                if (value != null) removeById(normalized, value.id);
+                if (value != null) normalized.add(value);
+            }
+        }
+        write(normalized);
+    }
+
     public List<Voicing> mergeWithBuiltIns(String chordSymbol, List<Voicing> builtIns) {
         List<Voicing> merged = new ArrayList<>(builtIns == null ? Collections.emptyList() : builtIns);
         for (CustomVoicing custom : forChord(chordSymbol)) {
@@ -67,63 +77,73 @@ public final class CustomVoicingStore {
         List<CustomVoicing> result = new ArrayList<>();
         String raw = preferences.getString(KEY_DATA, "[]");
         try {
-            JSONArray array = new JSONArray(raw == null ? "[]" : raw);
-            for (int i = 0; i < array.length(); i++) {
-                JSONObject object = array.optJSONObject(i);
-                if (object == null) continue;
-                int[] frets = readInts(object.optJSONArray("frets"));
-                int[] fingers = readInts(object.optJSONArray("fingers"));
+            Object parsed = JsonSupport.parse(raw == null ? "[]" : raw);
+            if (!(parsed instanceof List)) return result;
+            for (Object item : (List<?>) parsed) {
+                if (!(item instanceof Map)) continue;
+                Map<?, ?> object = (Map<?, ?>) item;
+                int[] frets = readInts(object.get("frets"));
+                int[] fingers = readInts(object.get("fingers"));
                 if (frets.length != 6) continue;
                 if (fingers.length != 6) fingers = new int[6];
                 result.add(new CustomVoicing(
-                        object.optString("id"),
-                        object.optString("chordSymbol"),
-                        object.optString("name"),
+                        text(object.get("id")),
+                        text(object.get("chordSymbol")),
+                        text(object.get("name")),
                         frets,
                         fingers,
-                        object.optInt("startFret", 1),
-                        object.optString("note"),
-                        object.optLong("createdAt", System.currentTimeMillis())
+                        integer(object.get("startFret"), 1),
+                        text(object.get("note")),
+                        longValue(object.get("createdAt"), System.currentTimeMillis())
                 ));
             }
-        } catch (JSONException | IllegalArgumentException ignored) {
+        } catch (IOException | IllegalArgumentException ignored) {
             // Corrupt local data is ignored safely; built-in JSON remains available.
         }
         return result;
     }
 
     private void write(List<CustomVoicing> entries) {
-        JSONArray array = new JSONArray();
+        List<Map<String, Object>> array = new ArrayList<>();
         for (CustomVoicing entry : entries) {
-            try {
-                JSONObject object = new JSONObject();
-                object.put("id", entry.id);
-                object.put("chordSymbol", entry.chordSymbol);
-                object.put("name", entry.name);
-                object.put("frets", intArray(entry.frets));
-                object.put("fingers", intArray(entry.fingers));
-                object.put("startFret", entry.startFret);
-                object.put("note", entry.note);
-                object.put("createdAt", entry.createdAt);
-                array.put(object);
-            } catch (JSONException ignored) {
-                // Values are primitive and should not fail; skip one bad entry defensively.
-            }
+            Map<String, Object> object = new LinkedHashMap<>();
+            object.put("id", entry.id);
+            object.put("chordSymbol", entry.chordSymbol);
+            object.put("name", entry.name);
+            object.put("frets", intArray(entry.frets));
+            object.put("fingers", intArray(entry.fingers));
+            object.put("startFret", entry.startFret);
+            object.put("note", entry.note);
+            object.put("createdAt", entry.createdAt);
+            array.add(object);
         }
-        preferences.edit().putString(KEY_DATA, array.toString()).apply();
+        preferences.edit().putString(KEY_DATA, JsonSupport.stringify(array)).apply();
     }
 
-    private static JSONArray intArray(int[] values) {
-        JSONArray array = new JSONArray();
-        for (int value : values) array.put(value);
+    private static List<Integer> intArray(int[] values) {
+        List<Integer> array = new ArrayList<>(values.length);
+        for (int value : values) array.add(value);
         return array;
     }
 
-    private static int[] readInts(JSONArray array) {
-        if (array == null) return new int[0];
-        int[] result = new int[array.length()];
-        for (int i = 0; i < result.length; i++) result[i] = array.optInt(i, 0);
+    private static int[] readInts(Object raw) {
+        if (!(raw instanceof List)) return new int[0];
+        List<?> array = (List<?>) raw;
+        int[] result = new int[array.size()];
+        for (int i = 0; i < result.length; i++) result[i] = integer(array.get(i), 0);
         return result;
+    }
+
+    private static String text(Object value) {
+        return value instanceof String ? (String) value : "";
+    }
+
+    private static int integer(Object value, int fallback) {
+        return value instanceof Number ? ((Number) value).intValue() : fallback;
+    }
+
+    private static long longValue(Object value, long fallback) {
+        return value instanceof Number ? ((Number) value).longValue() : fallback;
     }
 
     private static boolean removeById(List<CustomVoicing> entries, String id) {

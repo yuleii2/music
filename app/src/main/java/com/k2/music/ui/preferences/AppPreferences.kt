@@ -6,12 +6,52 @@ import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 enum class MotionLevel { FULL, REDUCED, OFF }
 
 enum class ExperienceMode { BEGINNER, PROFESSIONAL }
+
+data class ExperienceCapabilities(
+    val showAdvancedTheoryByDefault: Boolean,
+    val showAllVoicingsByDefault: Boolean,
+    val showTechnicalLabels: Boolean,
+    val defaultPracticeBpm: Int,
+    val defaultPracticeDurationSeconds: Int,
+    val defaultAllowBarre: Boolean,
+    val defaultMaxFret: Int,
+    val compactInformationDensity: Boolean,
+    val expandAdvancedPracticeSettings: Boolean,
+)
+
+fun ExperienceMode.capabilities(): ExperienceCapabilities = when (this) {
+    ExperienceMode.BEGINNER -> ExperienceCapabilities(
+        showAdvancedTheoryByDefault = false,
+        showAllVoicingsByDefault = false,
+        showTechnicalLabels = false,
+        defaultPracticeBpm = 50,
+        defaultPracticeDurationSeconds = 60,
+        defaultAllowBarre = false,
+        defaultMaxFret = 5,
+        compactInformationDensity = false,
+        expandAdvancedPracticeSettings = false,
+    )
+    ExperienceMode.PROFESSIONAL -> ExperienceCapabilities(
+        showAdvancedTheoryByDefault = true,
+        showAllVoicingsByDefault = true,
+        showTechnicalLabels = true,
+        defaultPracticeBpm = 80,
+        defaultPracticeDurationSeconds = 120,
+        defaultAllowBarre = true,
+        defaultMaxFret = 24,
+        compactInformationDensity = true,
+        expandAdvancedPracticeSettings = true,
+    )
+}
+
+val LocalExperienceCapabilities = staticCompositionLocalOf { ExperienceMode.BEGINNER.capabilities() }
 
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -22,8 +62,9 @@ data class AppSettings(
 )
 
 /** Independent, backward-compatible UI preferences for the Compose frontend. */
-class AppPreferences(context: Context) {
-    private val preferences: SharedPreferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+class AppPreferences private constructor(private val preferences: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE))
+    internal constructor(preferences: SharedPreferences, testOnly: Unit = Unit) : this(preferences)
     private val _settings = MutableStateFlow(readSettings())
 
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -41,6 +82,17 @@ class AppPreferences(context: Context) {
 
     fun setRecentTool(value: String) {
         preferences.edit { putString(KEY_RECENT_TOOL, value) }
+        _settings.value = readSettings()
+    }
+
+    fun replaceSettings(value: AppSettings) {
+        preferences.edit {
+            putString(KEY_THEME, value.themeMode.name)
+            putString(KEY_MOTION, value.motionLevel.name)
+            putString(KEY_EXPERIENCE, value.experienceMode.name)
+            putBoolean(KEY_DYNAMIC_COLOR, value.dynamicColor)
+            if (value.recentToolId == null) remove(KEY_RECENT_TOOL) else putString(KEY_RECENT_TOOL, value.recentToolId)
+        }
         _settings.value = readSettings()
     }
 

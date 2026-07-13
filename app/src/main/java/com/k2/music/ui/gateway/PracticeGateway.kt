@@ -6,16 +6,25 @@ import com.k2.music.PracticeRecordStore
 import com.k2.music.PracticeSession
 import com.k2.music.PracticeSummary
 import com.k2.music.TimeSignature
+import com.k2.music.TransitionAttempt
+import com.k2.music.TransitionAttemptStore
 import com.k2.music.ui.model.ProgressionUiModel
+import com.k2.music.ui.model.ChordUiModel
+import com.k2.music.ui.learning.DailyPracticePlan
+import com.k2.music.ui.learning.DailyPracticePlanner
+import com.k2.music.ui.learning.DefaultDailyPracticePlanner
+import com.k2.music.ui.learning.LearningProfile
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Calendar
+import java.util.TimeZone
 
 enum class PracticeModeUi(val label: String) {
     TWO_CHORD("双和弦"),
     MULTI_CHORD("多和弦"),
-    RANDOM("随机挑战"),
+    RANDOM("随机换和弦"),
 }
 
 enum class PracticeSwitchUi(val label: String) {
@@ -33,6 +42,8 @@ data class PracticeConfigUi(
     val accentFirstBeat: Boolean = true,
     val allowBarre: Boolean = true,
     val maxFret: Int = 12,
+    val sourceProgressionId: String = "",
+    val useProgressionRhythm: Boolean = false,
 )
 
 data class PracticeSummaryUi(
@@ -44,6 +55,15 @@ data class PracticeSummaryUi(
     val bestCompletionCount: Int = 0,
     val bestStreak: Int = 0,
     val totalSessions: Int = 0,
+    val sevenDayAttempts: Int = 0,
+    val sevenDaySuccesses: Int = 0,
+    val sevenDayFailures: Int = 0,
+    val sevenDaySuccessRate: Double? = null,
+    val strongestTransition: TransitionMasteryUi? = null,
+    val weakestTransition: TransitionMasteryUi? = null,
+    val highestStableBpm: Int? = null,
+    val dailyPracticeSeconds: List<Long> = List(7) { 0L },
+    val learningStreakDays: Int = 0,
 )
 
 data class PracticeHomeData(
@@ -54,34 +74,83 @@ data class PracticeHomeData(
 data class PracticeResultUi(
     val sessionId: String,
     val actualSeconds: Int,
-    val completionCount: Int,
+    val attemptCount: Int,
+    val successCount: Int,
+    val failureCount: Int,
     val bestStreak: Int,
     val symbols: List<String>,
-    val previousCompletionCount: Int?,
+    val previousSuccessRate: Double?,
+    val hardestTransition: String?,
+    val difficultySuggestion: DifficultySuggestionUi,
+) {
+    val successRate: Double? get() = if (attemptCount == 0) null else successCount.toDouble() / attemptCount
+}
+
+data class AttemptProgressUi(
+    val attemptCount: Int = 0,
+    val successCount: Int = 0,
+    val failureCount: Int = 0,
+    val currentStreak: Int = 0,
+    val bestStreak: Int = 0,
 )
 
 interface PracticeGateway {
     suspend fun home(): PracticeHomeData
     suspend fun summary(): PracticeSummaryUi
+    suspend fun dailyPlan(
+        profile: LearningProfile,
+        favorites: Set<String>,
+        availableChords: List<ChordUiModel>,
+    ): DailyPracticePlan
     suspend fun prepare(config: PracticeConfigUi): ProgressionUiModel
     suspend fun savePreferences(config: PracticeConfigUi)
+    suspend fun sessionProgress(sessionId: String): AttemptProgressUi
+    suspend fun recordAttempt(
+        sessionId: String,
+        config: PracticeConfigUi,
+        fromChord: String,
+        toChord: String,
+        fromVoicingId: String?,
+        toVoicingId: String?,
+        success: Boolean,
+        confirmationOffsetMillis: Long?,
+    ): AttemptProgressUi
+    suspend fun discardSession(sessionId: String)
     suspend fun saveResult(
+        sessionId: String,
+        startedAtEpochMillis: Long,
         config: PracticeConfigUi,
         actualSeconds: Int,
-        completionCount: Int,
-        bestStreak: Int,
     ): PracticeResultUi
 }
 
 class DefaultPracticeGateway(
     private val recordStore: PracticeRecordStore,
+    private val attemptStore: TransitionAttemptStore,
     private val preferenceStore: PracticePreferencesStore,
     private val practicePlanDraftStore: com.k2.music.PracticePlanDraftStore,
     private val progressionGateway: ProgressionGateway,
+    private val dailyPlanner: DailyPracticePlanner = DefaultDailyPracticePlanner(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : PracticeGateway {
     override suspend fun summary(): PracticeSummaryUi = withContext(dispatcher) {
-        recordStore.summarizeNow().toUi()
+        buildSummary()
+    }
+
+    override suspend fun dailyPlan(
+        profile: LearningProfile,
+        favorites: Set<String>,
+        availableChords: List<ChordUiModel>,
+    ): DailyPracticePlan = withContext(dispatcher) {
+        dailyPlanner.createPlan(
+            profile,
+            attemptStore.list(),
+            recordStore.list(),
+            preferenceStore.load().familiarVoicingIds,
+            favorites,
+            availableChords,
+            System.currentTimeMillis(),
+        )
     }
 
     override suspend fun home(): PracticeHomeData = withContext(dispatcher) {
@@ -103,13 +172,18 @@ class DefaultPracticeGateway(
             last != null -> PracticeConfigUi(
                 mode = last.type.toUi(),
                 symbols = last.chordSymbols.joinToString(" "),
-                durationSeconds = last.durationSeconds.coerceIn(30, 3600),
+                durationSeconds = last.plannedDurationSeconds.coerceIn(30, 3600),
                 bpm = last.bpm,
-                timeSignature = preferences.defaultTimeSignature.toString(),
-                switchMode = PracticeSwitchUi.EACH_MEASURE,
+                timeSignature = last.timeSignature,
+                switchMode = when (last.switchMode) {
+                    PracticeSession.SwitchMode.EACH_BEAT -> PracticeSwitchUi.EACH_BEAT
+                    PracticeSession.SwitchMode.EACH_MEASURE -> PracticeSwitchUi.EACH_MEASURE
+                },
                 accentFirstBeat = preferences.accentFirstBeat,
                 allowBarre = preferences.allowBarre,
                 maxFret = preferences.maxFret,
+                sourceProgressionId = last.sourceProgressionId,
+                useProgressionRhythm = last.useProgressionRhythm,
             )
             else -> PracticeConfigUi(
                 bpm = preferences.defaultBpm,
@@ -119,12 +193,18 @@ class DefaultPracticeGateway(
                 maxFret = preferences.maxFret,
             )
         }
-        PracticeHomeData(recordStore.summarizeNow().toUi(), quick)
+        PracticeHomeData(buildSummary(), quick)
     }
 
     override suspend fun prepare(config: PracticeConfigUi): ProgressionUiModel = withContext(dispatcher) {
         val symbols = config.symbols.trim()
-        val base = progressionGateway.createDraft(symbols, "练习 · ${config.mode.label}")
+        val sourceId = config.sourceProgressionId.trim()
+        val base = if (sourceId.isNotEmpty()) {
+            progressionGateway.loadEditor(sourceId)
+                ?: throw IllegalArgumentException("保存的和弦进行已不存在，请重新选择。")
+        } else {
+            progressionGateway.createDraft(symbols, "练习 · ${config.mode.label}")
+        }
         val required = when (config.mode) {
             PracticeModeUi.TWO_CHORD -> 2
             PracticeModeUi.MULTI_CHORD, PracticeModeUi.RANDOM -> 2
@@ -150,7 +230,12 @@ class DefaultPracticeGateway(
             bpm = config.bpm.coerceIn(40, 240),
             timeSignature = TimeSignature.parse(config.timeSignature).toString(),
             loop = true,
-            steps = ordered.mapIndexed { index, step -> step.copy(order = index, beats = beats) },
+            steps = ordered.mapIndexed { index, step ->
+                step.copy(
+                    order = index,
+                    beats = if (config.useProgressionRhythm && sourceId.isNotEmpty()) step.beats else beats,
+                )
+            },
             saved = false,
             allowBarre = config.allowBarre,
             maxFret = config.maxFret,
@@ -175,32 +260,118 @@ class DefaultPracticeGateway(
         Unit
     }
 
+    override suspend fun sessionProgress(sessionId: String): AttemptProgressUi = withContext(dispatcher) {
+        attemptStore.forSession(sessionId).toProgress()
+    }
+
+    override suspend fun recordAttempt(
+        sessionId: String,
+        config: PracticeConfigUi,
+        fromChord: String,
+        toChord: String,
+        fromVoicingId: String?,
+        toVoicingId: String?,
+        success: Boolean,
+        confirmationOffsetMillis: Long?,
+    ): AttemptProgressUi = withContext(dispatcher) {
+        val attempt = TransitionAttempt.create(
+            sessionId,
+            System.currentTimeMillis(),
+            fromChord,
+            toChord,
+            fromVoicingId,
+            toVoicingId,
+            config.bpm.coerceIn(40, 240),
+            TimeSignature.parse(config.timeSignature).toString(),
+            config.switchMode.toCore(),
+            success,
+            confirmationOffsetMillis,
+            config.mode.toCore(),
+        )
+        attemptStore.save(attempt)
+        attemptStore.forSession(sessionId).toProgress()
+    }
+
+    override suspend fun discardSession(sessionId: String) = withContext(dispatcher) {
+        attemptStore.deleteSession(sessionId)
+        Unit
+    }
+
     override suspend fun saveResult(
+        sessionId: String,
+        startedAtEpochMillis: Long,
         config: PracticeConfigUi,
         actualSeconds: Int,
-        completionCount: Int,
-        bestStreak: Int,
     ): PracticeResultUi = withContext(dispatcher) {
-        val previous = recordStore.list().firstOrNull()
         val symbols = progressionGateway.createDraft(config.symbols).steps.map { it.chordSymbol }
-        val session = PracticeSession.completed(
-            System.currentTimeMillis(),
+        val attempts = attemptStore.forSession(sessionId)
+        val progress = attempts.toProgress()
+        val previous = recordStore.list().firstOrNull {
+            !it.legacy && it.id != sessionId && it.type == config.mode.toCore() && it.chordSymbols == symbols
+        }
+        val endedAt = System.currentTimeMillis().coerceAtLeast(startedAtEpochMillis)
+        val session = PracticeSession.recorded(
+            sessionId,
+            startedAtEpochMillis,
+            endedAt,
             config.mode.toCore(),
             symbols,
             config.bpm.coerceIn(40, 240),
+            TimeSignature.parse(config.timeSignature).toString(),
+            config.switchMode.toCore(),
+            config.durationSeconds.coerceIn(5, 86_400),
             actualSeconds.coerceIn(0, 86_400),
-            completionCount.coerceAtLeast(0),
-            bestStreak.coerceIn(0, completionCount.coerceAtLeast(0)),
+            progress.attemptCount,
+            progress.successCount,
+            progress.failureCount,
+            progress.bestStreak,
+            config.sourceProgressionId,
+            config.useProgressionRhythm,
         )
-        recordStore.add(session)
+        recordStore.save(session)
+        val comparable = (listOf(session) + recordStore.list().filter {
+            !it.legacy && it.id != sessionId && it.type == session.type && it.chordSymbols == symbols
+        }).take(2)
+        val stableComparable = comparable.takeWhile {
+            it.attemptCount >= 10 && it.successCount.toDouble() / it.attemptCount >= 0.9
+        }.size
+        val suggestion = suggestPracticeDifficulty(attempts, session.bpm, stableComparable)
+        val hardest = attempts
+            .groupBy { it.fromChord to it.toChord }
+            .mapValues { (_, values) -> values.count { it.success }.toDouble() / values.size }
+            .minWithOrNull(compareBy<Map.Entry<Pair<String, String>, Double>> { it.value }
+                .thenByDescending { attempts.count { attempt -> attempt.fromChord == it.key.first && attempt.toChord == it.key.second } }
+                .thenBy { it.key.first }
+                .thenBy { it.key.second })
+            ?.key
         PracticeResultUi(
             session.id,
-            session.durationSeconds,
-            session.completionCount,
+            session.actualDurationSeconds,
+            session.attemptCount,
+            session.successCount,
+            session.failureCount,
             session.bestStreak,
             session.chordSymbols,
-            previous?.completionCount,
+            previous?.let { if (it.attemptCount == 0) null else it.successCount.toDouble() / it.attemptCount },
+            hardest?.let { "${it.first} → ${it.second}" },
+            suggestion,
         )
+    }
+
+    private fun List<TransitionAttempt>.toProgress(): AttemptProgressUi {
+        var currentStreak = 0
+        var bestStreak = 0
+        var successCount = 0
+        for (attempt in this.sortedWith(compareBy<TransitionAttempt> { it.timestampEpochMillis }.thenBy { it.id })) {
+            if (attempt.success) {
+                successCount++
+                currentStreak++
+                bestStreak = maxOf(bestStreak, currentStreak)
+            } else {
+                currentStreak = 0
+            }
+        }
+        return AttemptProgressUi(size, successCount, size - successCount, currentStreak, bestStreak)
     }
 
     private fun PracticeSummary.toUi() = PracticeSummaryUi(
@@ -214,6 +385,67 @@ class DefaultPracticeGateway(
         totalSessionCount,
     )
 
+    private fun buildSummary(): PracticeSummaryUi {
+        val now = System.currentTimeMillis()
+        val sessions = recordStore.list()
+        val sessionIds = sessions.mapTo(hashSetOf()) { it.id }
+        val attempts = attemptStore.list().filter { it.sessionId in sessionIds }
+        val base = recordStore.summarizeNow().toUi()
+        val calendar = Calendar.getInstance(TimeZone.getDefault()).apply {
+            timeInMillis = now
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val todayStart = calendar.timeInMillis
+        val sevenDayStart = (calendar.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -6) }.timeInMillis
+        val recentAttempts = attempts.filter { it.timestampEpochMillis in sevenDayStart..now }
+        val recentSuccesses = recentAttempts.count { it.success }
+        val masteries = calculateTransitionMasteries(attempts, now)
+        val scored = masteries.filter { it.score != null }
+        val strongest = scored.maxWithOrNull(
+            compareBy<TransitionMasteryUi> { it.score }.thenByDescending { it.key.label },
+        )
+        val weakest = scored.minWithOrNull(
+            compareBy<TransitionMasteryUi> { it.score }.thenBy { it.key.label },
+        )
+        val daily = (6 downTo 0).map { daysAgo ->
+            val start = (calendar.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -daysAgo) }.timeInMillis
+            val end = (calendar.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -daysAgo + 1) }.timeInMillis
+            sessions.filter { it.startedAtEpochMillis in start until end }.sumOf { it.actualDurationSeconds.toLong() }
+        }
+        val practicedDays = sessions.mapTo(hashSetOf()) { session ->
+            Calendar.getInstance(TimeZone.getDefault()).apply {
+                timeInMillis = session.startedAtEpochMillis
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+        }
+        var streak = 0
+        var cursor = todayStart
+        if (cursor !in practicedDays) cursor = (calendar.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -1) }.timeInMillis
+        while (cursor in practicedDays) {
+            streak++
+            val previous = Calendar.getInstance(TimeZone.getDefault()).apply {
+                timeInMillis = cursor
+                add(Calendar.DAY_OF_YEAR, -1)
+            }
+            cursor = previous.timeInMillis
+        }
+        return base.copy(
+            sevenDayCompletions = recentAttempts.size,
+            sevenDayAttempts = recentAttempts.size,
+            sevenDaySuccesses = recentSuccesses,
+            sevenDayFailures = recentAttempts.size - recentSuccesses,
+            sevenDaySuccessRate = recentSuccesses.toDouble().div(recentAttempts.size).takeIf { recentAttempts.isNotEmpty() },
+            strongestTransition = strongest,
+            weakestTransition = weakest,
+            highestStableBpm = masteries.mapNotNull { it.highestStableBpm }.maxOrNull(),
+            dailyPracticeSeconds = daily,
+            learningStreakDays = streak,
+        )
+    }
+
     private fun PracticeSession.Type.toUi() = when (this) {
         PracticeSession.Type.TWO_CHORD_TRANSITION -> PracticeModeUi.TWO_CHORD
         PracticeSession.Type.PROGRESSION_LOOP -> PracticeModeUi.MULTI_CHORD
@@ -224,5 +456,10 @@ class DefaultPracticeGateway(
         PracticeModeUi.TWO_CHORD -> PracticeSession.Type.TWO_CHORD_TRANSITION
         PracticeModeUi.MULTI_CHORD -> PracticeSession.Type.PROGRESSION_LOOP
         PracticeModeUi.RANDOM -> PracticeSession.Type.RANDOM_CHALLENGE
+    }
+
+    private fun PracticeSwitchUi.toCore() = when (this) {
+        PracticeSwitchUi.EACH_BEAT -> PracticeSession.SwitchMode.EACH_BEAT
+        PracticeSwitchUi.EACH_MEASURE -> PracticeSession.SwitchMode.EACH_MEASURE
     }
 }

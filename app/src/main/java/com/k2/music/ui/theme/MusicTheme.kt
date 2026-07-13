@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import com.k2.music.ui.preferences.AppSettings
 import com.k2.music.ui.preferences.ThemeMode
+import com.k2.music.ui.preferences.LocalExperienceCapabilities
+import com.k2.music.ui.preferences.capabilities
 
 @Composable
 fun MusicTheme(
@@ -51,6 +53,7 @@ fun MusicTheme(
     CompositionLocalProvider(
         LocalMusicExtraColors provides extraColors,
         LocalMusicMotion provides motion,
+        LocalExperienceCapabilities provides settings.experienceMode.capabilities(),
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

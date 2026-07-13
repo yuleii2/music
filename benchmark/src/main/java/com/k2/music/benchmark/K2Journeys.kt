@@ -19,6 +19,10 @@ internal fun MacrobenchmarkScope.launchReady() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         },
     )
+    if (device.wait(Until.findObject(By.res("home_content")), 3_000) == null) {
+        device.waitForResource("onboarding_screen", 10_000)
+        device.tap(device.waitForResource("onboarding_skip", 5_000))
+    }
     device.waitForResource("home_content", 20_000)
 }
 
@@ -66,10 +70,8 @@ internal fun MacrobenchmarkScope.openPracticeAndInteract() {
     device.pressBack()
     device.clickText("练习")
     device.waitForResource("practice_home_screen")
-    device.tapAndAwait("practice_quick_start", "practice_setup_screen")
-    device.scrollUntilResource("start_practice")
-    device.tapAndAwait("start_practice", "practice_session_screen")
-    device.tap(device.waitForResource("practice_complete_once"))
+    device.tapAndAwait("practice_quick_start", "practice_session_screen")
+    device.tap(device.scrollUntilResource("practice_success"))
     device.wait(Until.findObject(By.desc("暂停练习")), 5_000)?.let(device::tap)
     device.waitForIdle()
 }
