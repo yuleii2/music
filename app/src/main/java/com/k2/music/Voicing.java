@@ -18,6 +18,7 @@ public final class Voicing {
     public final String description;
     public final String[] stringNotes;
     public final int[] midiNotes;
+    public final ChordShape sourceShape;
 
     public Voicing(
             String name,
@@ -30,6 +31,22 @@ public final class Voicing {
             boolean simplified,
             boolean barre,
             String description
+    ) {
+        this(name, frets, fingers, startFret, displayFrets, difficulty, recommended, simplified, barre, description, null);
+    }
+
+    public Voicing(
+            String name,
+            int[] frets,
+            int[] fingers,
+            int startFret,
+            int displayFrets,
+            String difficulty,
+            boolean recommended,
+            boolean simplified,
+            boolean barre,
+            String description,
+            ChordShape sourceShape
     ) {
         if (frets.length != 6 || fingers.length != 6) {
             throw new IllegalArgumentException("Voicing must describe six strings.");
@@ -44,6 +61,7 @@ public final class Voicing {
         this.simplified = simplified;
         this.barre = barre;
         this.description = description;
+        this.sourceShape = sourceShape;
         this.midiNotes = buildMidiNotes(this.frets);
         this.stringNotes = buildStringNotes(this.midiNotes);
     }

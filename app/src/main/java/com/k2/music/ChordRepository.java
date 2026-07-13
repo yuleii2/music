@@ -3,16 +3,154 @@ package com.k2.music;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class ChordRepository {
+    private static final String[] EXAMPLES = {"C", "Am", "G7", "Fmaj7", "Cmaj7", "Csus4", "Cadd9", "G/B"};
+    private static final String[] CHROMATIC_ROOTS = {
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+
+    private final Map<String, ChordQuality> qualitiesById = new LinkedHashMap<>();
+    private final List<ChordShape> shapes = new ArrayList<>();
+    private final Map<String, List<ChordShape>> shapesBySymbol = new LinkedHashMap<>();
     private final Map<String, Chord> chordsBySymbol = new LinkedHashMap<>();
     private final Map<String, Chord> chordsByAlias = new LinkedHashMap<>();
+    private ChordFormulaRepository formulaRepository;
+    private GuitarVoicingRepository guitarVoicingRepository;
+    private ChordTheoryEngine theoryEngine;
+    private ChordNameParser nameParser;
+    private boolean usingFallbackData;
+    private String dataLoadMessage = "";
 
     public ChordRepository() {
-        registerAll();
+        try {
+            applyLoadedData(new ChordDataLoader().loadDefault());
+        } catch (ChordDataLoader.ChordDataException exception) {
+            loadSafeFallback(exception.getMessage());
+        }
+        rebuildIndexes();
+    }
+
+    public ChordRepository(ChordDataLoader.AssetSource assetSource) {
+        try {
+            applyLoadedData(new ChordDataLoader().load(assetSource));
+        } catch (ChordDataLoader.ChordDataException exception) {
+            loadSafeFallback(exception.getMessage());
+        }
+        rebuildIndexes();
+    }
+
+    public ChordRepository(
+            ChordFormulaRepository formulaRepository,
+            GuitarVoicingRepository guitarVoicingRepository
+    ) {
+        if (formulaRepository == null || guitarVoicingRepository == null) {
+            throw new IllegalArgumentException("Formula and voicing repositories must not be null.");
+        }
+        this.formulaRepository = formulaRepository;
+        this.guitarVoicingRepository = guitarVoicingRepository;
+        for (ChordFormula formula : formulaRepository.getAll()) {
+            registerQuality(formula.toChordQuality());
+        }
+        for (ChordShape shape : guitarVoicingRepository.getAllShapes()) {
+            registerShape(shape);
+        }
+        initializeEngines();
+        dataLoadMessage = "Chord data supplied by caller.";
+        rebuildIndexes();
+    }
+
+    void registerQuality(ChordQuality quality) {
+        qualitiesById.put(quality.id, quality);
+    }
+
+    void registerShape(ChordShape shape) {
+        if (!qualitiesById.containsKey(shape.qualityId)) {
+            throw new IllegalArgumentException("Unknown qualityId: " + shape.qualityId);
+        }
+        shapes.add(shape);
+    }
+
+    public List<ChordQuality> getAllQualities() {
+        return new ArrayList<>(qualitiesById.values());
+    }
+
+    public List<ChordShape> getAllShapes() {
+        return new ArrayList<>(shapes);
+    }
+
+    public List<ChordShape> getShapesByRoot(String root) {
+        String canonicalRoot = canonicalRootFilter(root);
+        if (canonicalRoot.isEmpty()) {
+            return getAllShapes();
+        }
+        List<ChordShape> result = new ArrayList<>();
+        for (ChordShape shape : shapes) {
+            if (canonicalRoot.equals(shape.root)) {
+                result.add(shape);
+            }
+        }
+        return result;
+    }
+
+    public List<ChordShape> getShapesByQuality(String qualityId) {
+        String normalized = normalizeTypeFilter(qualityId);
+        if (normalized.isEmpty()) {
+            return getAllShapes();
+        }
+        List<ChordShape> result = new ArrayList<>();
+        for (ChordShape shape : shapes) {
+            if (matchesType(shape, normalized)) {
+                result.add(shape);
+            }
+        }
+        return result;
+    }
+
+    public List<ChordShape> getShapes(String root, String qualityId) {
+        String canonicalRoot = canonicalRootFilter(root);
+        String normalizedQuality = normalizeTypeFilter(qualityId);
+        List<ChordShape> result = new ArrayList<>();
+        for (ChordShape shape : shapes) {
+            boolean rootMatches = canonicalRoot.isEmpty() || canonicalRoot.equals(shape.root);
+            boolean qualityMatches = normalizedQuality.isEmpty() || matchesType(shape, normalizedQuality);
+            if (rootMatches && qualityMatches) {
+                result.add(shape);
+            }
+        }
+        return result;
+    }
+
+    public List<ChordShape> getBeginnerShapes() {
+        List<ChordShape> result = new ArrayList<>();
+        for (ChordShape shape : shapes) {
+            if (shape.difficulty <= 2) {
+                result.add(shape);
+            }
+        }
+        return result;
+    }
+
+    public List<ChordShape> search(String keyword) {
+        return filterShapes(keyword, "", "", 0);
+    }
+
+    public List<Chord> filteredChords(String keyword, String root, String type, int difficultyBucket) {
+        List<ChordShape> filteredShapes = filterShapes(keyword, root, type, difficultyBucket);
+        LinkedHashMap<String, Chord> result = new LinkedHashMap<>();
+        for (ChordShape shape : filteredShapes) {
+            ChordQuality quality = qualitiesById.get(shape.qualityId);
+            Chord chord = chordsBySymbol.get(shape.symbol(quality));
+            if (chord != null) {
+                result.put(chord.symbol, chord);
+            }
+        }
+        return new ArrayList<>(result.values());
     }
 
     public LookupResult find(String rawInput) {
@@ -20,457 +158,329 @@ public final class ChordRepository {
         if (input.isEmpty()) {
             return LookupResult.error("请输入和弦名称，例如 C、Am、G7、Fmaj7。");
         }
-        NormalizedInput normalized = normalize(input);
-        if (normalized.error != null) {
-            return LookupResult.error(normalized.error);
+        ChordNameParser.ParseResult parsed = nameParser.parse(input);
+        if (!parsed.recognized) {
+            return LookupResult.error(parsed.error);
         }
-        Chord chord = chordsByAlias.get(normalized.symbol);
+        Chord chord = chordsByAlias.get(parsed.normalizedSymbol);
         if (chord == null) {
-            return LookupResult.error("当前版本暂不支持该和弦类型，请先尝试 C、Am、G7、Fmaj7 等常见和弦。");
+            chord = theoryEngine.buildChord(
+                    parsed.canonicalRoot,
+                    parsed.canonicalBassNote,
+                    parsed.formula,
+                    new ArrayList<>()
+            );
+        } else if (!parsed.displaySymbol.equals(parsed.normalizedSymbol)) {
+            chord = theoryEngine.buildChord(
+                    parsed.root,
+                    parsed.bassNote,
+                    parsed.formula,
+                    chord.shapes
+            );
         }
-        return LookupResult.success(chord, normalized.changed ? "已将输入规范化为 " + chord.symbol + "。" : null);
+        if (chord == null) {
+            return LookupResult.error("无法根据该名称生成和弦数据。");
+        }
+        StringBuilder message = new StringBuilder();
+        if (!input.equals(chord.symbol)) {
+            message.append("已将输入规范化为 ").append(chord.symbol).append("。");
+        }
+        if (chord.voicings.isEmpty()) {
+            if (message.length() > 0) {
+                message.append(' ');
+            }
+            message.append("该和弦理论数据可用，当前暂无收录指法。");
+        }
+        return LookupResult.success(chord, message.length() == 0 ? null : message.toString());
     }
 
     public List<String> examples() {
-        return Arrays.asList("C", "Am", "G7", "Fmaj7", "C9", "G/B");
+        return Arrays.asList(EXAMPLES);
     }
 
     public List<Chord> allChords() {
         return new ArrayList<>(chordsBySymbol.values());
     }
 
-    private void registerAll() {
-        register(new Chord(
-                "C", "C 大三和弦", "C", "大三和弦",
-                list("1", "3", "5"), list("C", "E", "G"), list("Cmaj", "Cmajor"),
-                "C 大三和弦由根音 C、大三度 E 和纯五度 G 构成，听感明亮、稳定，是吉他学习中最常见的基础和弦之一。",
-                list(
-                        voicing("开放 C 和弦", a(-1, 3, 2, 0, 1, 0), a(0, 3, 2, 0, 1, 0), 1, 4, "入门", true, false, false,
-                                "第 6 弦不弹，第 5 弦 3 品、第 4 弦 2 品、第 2 弦 1 品，其余为有效空弦。"),
-                        voicing("C 大横按", a(8, 10, 10, 9, 8, 8), a(1, 3, 4, 2, 1, 1), 8, 4, "进阶", true, false, true,
-                                "第 8 品横按，第 5、4 弦 10 品，第 3 弦 9 品。适合学习封闭和弦和高把位声音。")
-                )
-        ));
-        register(new Chord(
-                "D", "D 大三和弦", "D", "大三和弦",
-                list("1", "3", "5"), list("D", "F#", "A"), list("Dmaj", "Dmajor"),
-                "D 大三和弦由 D、F#、A 构成，开放按法明亮清晰，常用于入门歌曲伴奏。",
-                list(voicing("开放 D 和弦", a(-1, -1, 0, 2, 3, 2), a(0, 0, 0, 1, 3, 2), 1, 4, "入门", true, false, false,
-                        "第 6、5 弦不弹，第 4 弦空弦，第 3 弦 2 品、第 2 弦 3 品、第 1 弦 2 品。"))
-        ));
-        register(new Chord(
-                "E", "E 大三和弦", "E", "大三和弦",
-                list("1", "3", "5"), list("E", "G#", "B"), list("Emaj", "Emajor"),
-                "E 大三和弦由 E、G#、B 构成，开放按法饱满稳定，是常见基础和弦。",
-                list(voicing("开放 E 和弦", a(0, 2, 2, 1, 0, 0), a(0, 2, 3, 1, 0, 0), 1, 4, "入门", true, false, false,
-                        "第 6、2、1 弦为空弦，第 5、4 弦 2 品，第 3 弦 1 品。"))
-        ));
-        register(new Chord(
-                "F", "F 大三和弦", "F", "大三和弦",
-                list("1", "3", "5"), list("F", "A", "C"), list("Fmaj", "Fmajor"),
-                "F 大三和弦由 F、A、C 构成，常见按法需要横按，初学者通常会觉得难度较高。",
-                list(
-                        voicing("F 简化按法", a(-1, -1, 3, 2, 1, 1), a(0, 0, 3, 2, 1, 1), 1, 4, "常见", true, true, true,
-                                "第 6、5 弦不弹，第 4 弦 3 品、第 3 弦 2 品，第 2、1 弦 1 品。比完整大横按更适合先练。"),
-                        voicing("F 大横按", a(1, 3, 3, 2, 1, 1), a(1, 3, 4, 2, 1, 1), 1, 4, "进阶", true, false, true,
-                                "第 1 品横按，第 5、4 弦 3 品，第 3 弦 2 品。该按法需要横按。")
-                )
-        ));
-        register(new Chord(
-                "G", "G 大三和弦", "G", "大三和弦",
-                list("1", "3", "5"), list("G", "B", "D"), list("Gmaj", "Gmajor"),
-                "G 大三和弦由 G、B、D 构成，开放按法声音开阔，是吉他伴奏中非常常见的和弦。",
-                list(
-                        voicing("开放 G 和弦", a(3, 2, 0, 0, 0, 3), a(3, 2, 0, 0, 0, 4), 1, 4, "入门", true, false, false,
-                                "第 6 弦 3 品、第 5 弦 2 品、第 1 弦 3 品，其余为空弦。"),
-                        voicing("G 大横按", a(3, 5, 5, 4, 3, 3), a(1, 3, 4, 2, 1, 1), 3, 4, "进阶", true, false, true,
-                                "第 3 品横按，第 5、4 弦 5 品，第 3 弦 4 品。适合比较开放和弦与封闭和弦听感。")
-                )
-        ));
-        register(new Chord(
-                "A", "A 大三和弦", "A", "大三和弦",
-                list("1", "3", "5"), list("A", "C#", "E"), list("Amaj", "Amajor"),
-                "A 大三和弦由 A、C#、E 构成，开放按法紧凑明亮。",
-                list(voicing("开放 A 和弦", a(-1, 0, 2, 2, 2, 0), a(0, 0, 1, 2, 3, 0), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 5、1 弦为空弦，第 4、3、2 弦 2 品。"))
-        ));
-        register(new Chord(
-                "B", "B 大三和弦", "B", "大三和弦",
-                list("1", "3", "5"), list("B", "D#", "F#"), list("Bmaj", "Bmajor"),
-                "B 大三和弦由 B、D#、F# 构成，常见吉他按法多为封闭和弦。",
-                list(voicing("B 封闭和弦", a(-1, 2, 4, 4, 4, 2), a(0, 1, 3, 3, 3, 1), 2, 4, "进阶", true, false, true,
-                        "第 6 弦不弹，第 2 品横按，第 4、3、2 弦 4 品。"))
-        ));
-        register(new Chord(
-                "Am", "A 小三和弦", "A", "小三和弦",
-                list("1", "b3", "5"), list("A", "C", "E"), list("Amin", "A-"),
-                "A 小三和弦由 A、C、E 构成，听感较柔和、带有轻微忧郁色彩。",
-                list(
-                        voicing("开放 Am 和弦", a(-1, 0, 2, 2, 1, 0), a(0, 0, 2, 3, 1, 0), 1, 4, "入门", true, false, false,
-                                "第 6 弦不弹，第 5、1 弦为空弦，第 4、3 弦 2 品，第 2 弦 1 品。"),
-                        voicing("Am 五品横按", a(5, 7, 7, 5, 5, 5), a(1, 3, 4, 1, 1, 1), 5, 4, "进阶", true, false, true,
-                                "第 5 品横按，第 5、4 弦 7 品。适合比较开放 Am 和高把位 Am 的声音差异。")
-                )
-        ));
-        register(new Chord(
-                "Dm", "D 小三和弦", "D", "小三和弦",
-                list("1", "b3", "5"), list("D", "F", "A"), list("Dmin", "D-"),
-                "D 小三和弦由 D、F、A 构成，开放按法适合入门阶段练习。",
-                list(voicing("开放 Dm 和弦", a(-1, -1, 0, 2, 3, 1), a(0, 0, 0, 2, 3, 1), 1, 4, "入门", true, false, false,
-                        "第 6、5 弦不弹，第 4 弦空弦，第 3 弦 2 品、第 2 弦 3 品、第 1 弦 1 品。"))
-        ));
-        register(new Chord(
-                "Em", "E 小三和弦", "E", "小三和弦",
-                list("1", "b3", "5"), list("E", "G", "B"), list("Emin", "E-"),
-                "E 小三和弦由 E、G、B 构成，开放按法简单饱满，是最早学习的和弦之一。",
-                list(voicing("开放 Em 和弦", a(0, 2, 2, 0, 0, 0), a(0, 2, 3, 0, 0, 0), 1, 4, "入门", true, false, false,
-                        "第 5、4 弦 2 品，其余为空弦。"))
-        ));
-        register(new Chord(
-                "G7", "G 属七和弦", "G", "属七和弦",
-                list("1", "3", "5", "b7"), list("G", "B", "D", "F"), list(),
-                "G7 由 G、B、D、F 构成，具有较强的解决倾向，常连接到 C 和弦。",
-                list(voicing("开放 G7 和弦", a(3, 2, 0, 0, 0, 1), a(3, 2, 0, 0, 0, 1), 1, 4, "入门", true, false, false,
-                        "第 6 弦 3 品、第 5 弦 2 品、第 1 弦 1 品，其余为空弦。"))
-        ));
-        register(new Chord(
-                "A7", "A 属七和弦", "A", "属七和弦",
-                list("1", "3", "5", "b7"), list("A", "C#", "E", "G"), list(),
-                "A7 由 A、C#、E、G 构成，常用于推动到 D 或 Dm 一类和弦。",
-                list(voicing("开放 A7 和弦", a(-1, 0, 2, 0, 2, 0), a(0, 0, 2, 0, 3, 0), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 4、2 弦 2 品，其余有效弦为空弦。"))
-        ));
-        register(new Chord(
-                "E7", "E 属七和弦", "E", "属七和弦",
-                list("1", "3", "5", "b7"), list("E", "G#", "B", "D"), list(),
-                "E7 由 E、G#、B、D 构成，开放按法常用于连接到 A 或 Am。",
-                list(voicing("开放 E7 和弦", a(0, 2, 0, 1, 0, 0), a(0, 2, 0, 1, 0, 0), 1, 4, "入门", true, false, false,
-                        "第 5 弦 2 品、第 3 弦 1 品，其余为空弦。"))
-        ));
-        register(new Chord(
-                "Cmaj7", "C 大七和弦", "C", "大七和弦",
-                list("1", "3", "5", "7"), list("C", "E", "G", "B"), list("CM7", "CΔ7"),
-                "Cmaj7 由 C、E、G、B 构成，听感明亮、柔和，比 C 大三和弦更有延展感。",
-                list(voicing("开放 Cmaj7 和弦", a(-1, 3, 2, 0, 0, 0), a(0, 3, 2, 0, 0, 0), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 5 弦 3 品、第 4 弦 2 品，其余有效弦为空弦。"))
-        ));
-        register(new Chord(
-                "Fmaj7", "F 大七和弦", "F", "大七和弦",
-                list("1", "3", "5", "7"), list("F", "A", "C", "E"), list("FM7", "FΔ7"),
-                "Fmaj7 由 F、A、C、E 构成，常见开放按法比 F 大横按更适合初学者入门。",
-                list(voicing("开放 Fmaj7 和弦", a(-1, -1, 3, 2, 1, 0), a(0, 0, 3, 2, 1, 0), 1, 4, "入门", true, false, false,
-                        "第 6、5 弦不弹，第 4 弦 3 品、第 3 弦 2 品、第 2 弦 1 品、第 1 弦空弦。"))
-        ));
-        register(new Chord(
-                "Am7", "A 小七和弦", "A", "小七和弦",
-                list("1", "b3", "5", "b7"), list("A", "C", "E", "G"), list("Amin7", "A-7"),
-                "Am7 由 A、C、E、G 构成，听感比 Am 更松弛、柔和。",
-                list(voicing("开放 Am7 和弦", a(-1, 0, 2, 0, 1, 0), a(0, 0, 2, 0, 1, 0), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 4 弦 2 品、第 2 弦 1 品，其余有效弦为空弦。"))
-        ));
-        register(new Chord(
-                "Dm7", "D 小七和弦", "D", "小七和弦",
-                list("1", "b3", "5", "b7"), list("D", "F", "A", "C"), list("Dmin7", "D-7"),
-                "Dm7 由 D、F、A、C 构成，常用于流行、民谣和爵士语境。",
-                list(voicing("开放 Dm7 和弦", a(-1, -1, 0, 2, 1, 1), a(0, 0, 0, 2, 1, 1), 1, 4, "入门", true, false, true,
-                        "第 6、5 弦不弹，第 4 弦空弦，第 3 弦 2 品，第 2、1 弦 1 品。"))
-        ));
-        register(new Chord(
-                "Bm7", "B 小七和弦", "B", "小七和弦",
-                list("1", "b3", "5", "b7"), list("B", "D", "F#", "A"), list("Bmin7", "B-7"),
-                "Bm7 由 B、D、F#、A 构成，常见吉他按法通常需要二品横按。",
-                list(voicing("Bm7 封闭和弦", a(-1, 2, 4, 2, 3, 2), a(0, 1, 3, 1, 2, 1), 2, 4, "进阶", true, false, true,
-                        "第 6 弦不弹，第 2 品横按，第 4 弦 4 品、第 2 弦 3 品。"))
-        ));
-        register(new Chord(
-                "Csus2", "C 挂二和弦", "C", "挂留和弦",
-                list("1", "2", "5"), list("C", "D", "G"), list(),
-                "Csus2 用二度音 D 替代三度音，听感开放、悬而未决。",
-                list(voicing("开放 Csus2 和弦", a(-1, 3, 0, 0, 3, 3), a(0, 1, 0, 0, 3, 4), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 5 弦 3 品，第 2、1 弦 3 品，第 4、3 弦为空弦。"))
-        ));
-        register(new Chord(
-                "Dsus4", "D 挂四和弦", "D", "挂留和弦",
-                list("1", "4", "5"), list("D", "G", "A"), list(),
-                "Dsus4 用四度音 G 替代三度音，常与 D 大三和弦交替使用。",
-                list(voicing("开放 Dsus4 和弦", a(-1, -1, 0, 2, 3, 3), a(0, 0, 0, 1, 3, 4), 1, 4, "入门", true, false, false,
-                        "第 6、5 弦不弹，第 4 弦空弦，第 3 弦 2 品，第 2、1 弦 3 品。"))
-        ));
-        register(new Chord(
-                "Bdim", "B 减和弦", "B", "减和弦",
-                list("1", "b3", "b5"), list("B", "D", "F"), list("B°"),
-                "Bdim 由 B、D、F 构成，听感紧张，常用于制造过渡和不稳定感。",
-                list(voicing("Bdim 常见按法", a(-1, 2, 3, 4, 3, -1), a(0, 1, 2, 4, 3, 0), 2, 4, "进阶", true, false, false,
-                        "第 6、1 弦不弹，第 5 弦 2 品、第 4 弦 3 品、第 3 弦 4 品、第 2 弦 3 品。"))
-        ));
-        register(new Chord(
-                "Caug", "C 增和弦", "C", "增和弦",
-                list("1", "3", "#5"), list("C", "E", "G#"), list("C+"),
-                "Caug 由 C、E、G# 构成，听感带有向外扩张的不稳定色彩。",
-                list(voicing("Caug 常见按法", a(-1, 3, 2, 1, 1, 0), a(0, 4, 3, 1, 2, 0), 1, 4, "常见", true, false, false,
-                        "第 6 弦不弹，第 5 弦 3 品、第 4 弦 2 品、第 3、2 弦 1 品，第 1 弦空弦。"))
-        ));
-        register(new Chord(
-                "Cadd9", "C 加九和弦", "C", "加音和弦",
-                list("1", "3", "5", "9"), list("C", "E", "G", "D"), list(),
-                "Cadd9 在 C 大三和弦基础上加入九度音 D，听感明亮、流行感较强。",
-                list(voicing("开放 Cadd9 和弦", a(-1, 3, 2, 0, 3, 0), a(0, 3, 2, 0, 4, 0), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 5 弦 3 品、第 4 弦 2 品、第 2 弦 3 品，第 3、1 弦为空弦。"))
-        ));
-        register(new Chord(
-                "C7", "C 属七和弦", "C", "属七和弦",
-                list("1", "3", "5", "b7"), list("C", "E", "G", "Bb"), list(),
-                "C7 由 C、E、G、Bb 构成，带有明显的属功能色彩，常用于连接到 F。",
-                list(voicing("开放 C7 和弦", a(-1, 3, 2, 3, 1, 0), a(0, 3, 2, 4, 1, 0), 1, 4, "常见", true, false, false,
-                        "第 6 弦不弹，第 5 弦 3 品、第 4 弦 2 品、第 3 弦 3 品、第 2 弦 1 品，第 1 弦空弦。"))
-        ));
-        register(new Chord(
-                "D7", "D 属七和弦", "D", "属七和弦",
-                list("1", "3", "5", "b7"), list("D", "F#", "A", "C"), list(),
-                "D7 由 D、F#、A、C 构成，常用于推动到 G 或 Gm。",
-                list(voicing("开放 D7 和弦", a(-1, -1, 0, 2, 1, 2), a(0, 0, 0, 2, 1, 3), 1, 4, "入门", true, false, false,
-                        "第 6、5 弦不弹，第 4 弦空弦，第 3 弦 2 品、第 2 弦 1 品、第 1 弦 2 品。"))
-        ));
-        register(new Chord(
-                "Bm", "B 小三和弦", "B", "小三和弦",
-                list("1", "b3", "5"), list("B", "D", "F#"), list("Bmin", "B-"),
-                "Bm 由 B、D、F# 构成，常见吉他按法需要二品横按，是从开放和弦过渡到封闭和弦的重要练习对象。",
-                list(
-                        voicing("Bm 小横按", a(-1, 2, 4, 4, 3, 2), a(0, 1, 3, 4, 2, 1), 2, 4, "进阶", true, false, true,
-                                "第 6 弦不弹，第 2 品横按，第 4、3 弦 4 品，第 2 弦 3 品。"),
-                        voicing("Bm 简化按法", a(-1, -1, 4, 4, 3, 2), a(0, 0, 3, 4, 2, 1), 2, 4, "常见", true, true, false,
-                                "第 6、5 弦不弹，只弹高四根弦，适合先练习 Bm 的核心声音。")
-                )
-        ));
-        register(new Chord(
-                "F#m", "F# 小三和弦", "F#", "小三和弦",
-                list("1", "b3", "5"), list("F#", "A", "C#"), list("F#min", "F#-"),
-                "F#m 由 F#、A、C# 构成，常见于 E、A、D 调歌曲中。",
-                list(voicing("F#m 大横按", a(2, 4, 4, 2, 2, 2), a(1, 3, 4, 1, 1, 1), 2, 4, "进阶", true, false, true,
-                        "第 2 品横按，第 5、4 弦 4 品。该按法需要较稳定的横按力量。"))
-        ));
-        register(new Chord(
-                "C9", "C 九和弦", "C", "九和弦",
-                list("1", "3", "5", "b7", "9"), list("C", "E", "G", "Bb", "D"), list(),
-                "C9 在 C7 基础上加入九度音 D，声音比属七和弦更丰富，常用于布鲁斯、放克和爵士语境。",
-                list(voicing("C9 常见按法", a(-1, 3, 2, 3, 3, 3), a(0, 2, 1, 3, 3, 3), 1, 4, "进阶", true, false, true,
-                        "第 6 弦不弹，第 5 弦 3 品、第 4 弦 2 品，第 3、2、1 弦 3 品。"))
-        ));
-        register(new Chord(
-                "G9", "G 九和弦", "G", "九和弦",
-                list("1", "3", "5", "b7", "9"), list("G", "B", "D", "F", "A"), list(),
-                "G9 在 G7 基础上加入九度音 A，听感更明亮、延展。",
-                list(voicing("开放 G9 和弦", a(3, 2, 0, 2, 0, 1), a(3, 2, 0, 4, 0, 1), 1, 4, "常见", true, false, false,
-                        "第 6 弦 3 品、第 5 弦 2 品、第 3 弦 2 品、第 1 弦 1 品，其余为空弦。"))
-        ));
-        register(new Chord(
-                "D9", "D 九和弦", "D", "九和弦",
-                list("1", "3", "5", "b7", "9"), list("D", "F#", "A", "C", "E"), list(),
-                "D9 在 D7 基础上加入九度音 E，常用于需要更丰富属功能色彩的伴奏。",
-                list(voicing("D9 常见按法", a(-1, 5, 4, 5, 5, -1), a(0, 2, 1, 3, 4, 0), 4, 4, "进阶", true, false, false,
-                        "第 6、1 弦不弹，第 5 弦 5 品、第 4 弦 4 品、第 3、2 弦 5 品。"))
-        ));
-        register(new Chord(
-                "A9", "A 九和弦", "A", "九和弦",
-                list("1", "3", "5", "b7", "9"), list("A", "C#", "E", "G", "B"), list(),
-                "A9 在 A7 基础上加入九度音 B，常用于 blues、funk 和流行伴奏。",
-                list(voicing("开放 A9 和弦", a(-1, 0, 2, 4, 2, 3), a(0, 0, 1, 4, 2, 3), 1, 4, "常见", true, false, false,
-                        "第 6 弦不弹，第 5 弦空弦，第 4 弦 2 品、第 3 弦 4 品、第 2 弦 2 品、第 1 弦 3 品。"))
-        ));
-        register(new Chord(
-                "C/E", "C/E 分数和弦", "C", "分数和弦", "E",
-                list("1", "3", "5"), list("C", "E", "G"), list(),
-                "C/E 表示以 E 作为低音的 C 和弦，常用于低音线平滑连接。",
-                list(voicing("开放 C/E 和弦", a(0, 3, 2, 0, 1, 0), a(0, 3, 2, 0, 1, 0), 1, 4, "入门", true, false, false,
-                        "第 6 弦空弦作为低音 E，其余基本保持开放 C 和弦按法。"))
-        ));
-        register(new Chord(
-                "G/B", "G/B 分数和弦", "G", "分数和弦", "B",
-                list("1", "3", "5"), list("G", "B", "D"), list(),
-                "G/B 表示以 B 作为低音的 G 和弦，常用于 C、G、Am 等和弦之间的低音连接。",
-                list(voicing("开放 G/B 和弦", a(-1, 2, 0, 0, 3, 3), a(0, 1, 0, 0, 3, 4), 1, 4, "入门", true, false, false,
-                        "第 6 弦不弹，第 5 弦 2 品作为低音 B，第 2、1 弦 3 品，其余为空弦。"))
-        ));
-        register(new Chord(
-                "D/F#", "D/F# 分数和弦", "D", "分数和弦", "F#",
-                list("1", "3", "5"), list("D", "F#", "A"), list(),
-                "D/F# 表示以 F# 作为低音的 D 和弦，常用于 G、D、Em 等和弦之间的过渡。",
-                list(voicing("开放 D/F# 和弦", a(2, 0, 0, 2, 3, 2), a(1, 0, 0, 2, 4, 3), 1, 4, "常见", true, false, false,
-                        "第 6 弦 2 品作为低音 F#，第 5、4 弦为空弦，第 3 弦 2 品、第 2 弦 3 品、第 1 弦 2 品。"))
-        ));
+    public ChordFormulaRepository getFormulaRepository() {
+        return formulaRepository;
     }
 
-    private void register(Chord chord) {
-        chordsBySymbol.put(chord.symbol, chord);
-        chordsByAlias.put(canonicalLookupKey(chord.symbol), chord);
-        for (String alias : chord.aliases) {
-            chordsByAlias.put(canonicalLookupKey(alias), chord);
-        }
+    public GuitarVoicingRepository getGuitarVoicingRepository() {
+        return guitarVoicingRepository;
     }
 
-    private NormalizedInput normalize(String input) {
-        String cleaned = input.replace(" ", "")
-                .replace("♯", "#")
-                .replace("♭", "b")
-                .replace("Δ", "maj")
-                .replace("°", "dim")
-                .replace("+", "aug");
-        if (cleaned.isEmpty()) {
-            return NormalizedInput.error("请输入和弦名称，例如 C、Am、G7、Fmaj7。");
+    public ChordTheoryEngine getTheoryEngine() {
+        return theoryEngine;
+    }
+
+    public ChordNameParser getNameParser() {
+        return nameParser;
+    }
+
+    public boolean isUsingFallbackData() {
+        return usingFallbackData;
+    }
+
+    public String getDataLoadMessage() {
+        return dataLoadMessage;
+    }
+
+    ChordQuality qualityForId(String qualityId) {
+        return qualitiesById.get(qualityId);
+    }
+
+    private void rebuildIndexes() {
+        shapesBySymbol.clear();
+        chordsBySymbol.clear();
+        chordsByAlias.clear();
+
+        for (ChordShape shape : shapes) {
+            ChordQuality quality = qualitiesById.get(shape.qualityId);
+            String symbol = shape.symbol(quality);
+            List<ChordShape> symbolShapes = shapesBySymbol.get(symbol);
+            if (symbolShapes == null) {
+                symbolShapes = new ArrayList<>();
+                shapesBySymbol.put(symbol, symbolShapes);
+            }
+            symbolShapes.add(shape);
         }
-        char first = Character.toUpperCase(cleaned.charAt(0));
-        if (first == 'H') {
-            return NormalizedInput.error("无法识别 H 作为根音。请使用 C、D、E、F、G、A、B 及升降号写法。");
-        }
-        if ("ABCDEFG".indexOf(first) < 0) {
-            return NormalizedInput.error("无法识别该和弦名称，请输入类似 C、Am、G7、Fmaj7 的格式。");
-        }
-        StringBuilder root = new StringBuilder();
-        root.append(first);
-        int index = 1;
-        if (cleaned.length() > 1) {
-            char accidental = cleaned.charAt(1);
-            if (accidental == '#') {
-                root.append('#');
-                index = 2;
-            } else if (accidental == 'b' || accidental == 'B') {
-                root.append('b');
-                index = 2;
+
+        for (String root : CHROMATIC_ROOTS) {
+            for (ChordFormula formula : formulaRepository.getAll()) {
+                String symbol = root + formula.suffix;
+                List<ChordShape> symbolShapes = shapesBySymbol.get(symbol);
+                if (symbolShapes == null) {
+                    symbolShapes = new ArrayList<>();
+                }
+                Chord chord = theoryEngine.buildChord(root, "", formula, symbolShapes);
+                chordsBySymbol.put(chord.symbol, chord);
             }
         }
-        String rootText = root.toString();
-        String uncommonHint = uncommonRootHint(rootText);
-        if (uncommonHint != null) {
-            return NormalizedInput.error(uncommonHint);
-        }
-        String quality = cleaned.substring(index);
-        String normalizedQuality = normalizeQuality(quality);
-        String symbol = root + normalizedQuality;
-        boolean changed = !symbol.equals(input);
-        return NormalizedInput.success(symbol, changed);
-    }
 
-    private static String canonicalLookupKey(String symbol) {
-        String cleaned = symbol.replace(" ", "")
-                .replace("♯", "#")
-                .replace("♭", "b")
-                .replace("°", "dim")
-                .replace("Δ", "maj")
-                .replace("+", "aug")
-                .trim();
-        if (cleaned.isEmpty()) {
-            return cleaned;
+        for (Map.Entry<String, List<ChordShape>> entry : shapesBySymbol.entrySet()) {
+            if (chordsBySymbol.containsKey(entry.getKey())) {
+                continue;
+            }
+            Chord chord = buildChord(entry.getKey(), entry.getValue());
+            chordsBySymbol.put(chord.symbol, chord);
         }
-        char first = Character.toUpperCase(cleaned.charAt(0));
-        StringBuilder root = new StringBuilder();
-        root.append(first);
-        int index = 1;
-        if (cleaned.length() > 1) {
-            char accidental = cleaned.charAt(1);
-            if (accidental == '#') {
-                root.append('#');
-                index = 2;
-            } else if (accidental == 'b' || accidental == 'B') {
-                root.append('b');
-                index = 2;
+
+        for (Chord chord : chordsBySymbol.values()) {
+            registerAlias(chord.symbol, chord);
+            for (String alias : chord.aliases) {
+                registerAlias(alias, chord);
             }
         }
-        return root + normalizeQuality(cleaned.substring(index));
     }
 
-    private static String uncommonRootHint(String root) {
-        if ("Cb".equals(root)) {
-            return "Cb 是非常见等音写法，当前版本请尝试输入 B。";
-        }
-        if ("B#".equals(root)) {
-            return "B# 是非常见等音写法，当前版本请尝试输入 C。";
-        }
-        if ("E#".equals(root)) {
-            return "E# 是非常见等音写法，当前版本请尝试输入 F。";
-        }
-        if ("Fb".equals(root)) {
-            return "Fb 是非常见等音写法，当前版本请尝试输入 E。";
-        }
-        return null;
+    private Chord buildChord(String symbol, List<ChordShape> chordShapes) {
+        ChordShape first = chordShapes.get(0);
+        ChordFormula formula = formulaRepository.findById(first.qualityId);
+        return theoryEngine.buildChord(first.root, first.bassNote, formula, chordShapes);
     }
 
-    private static String normalizeQuality(String quality) {
-        if (quality.isEmpty()) {
+    private List<ChordShape> filterShapes(String keyword, String root, String type, int difficultyBucket) {
+        String canonicalRoot = canonicalRootFilter(root);
+        String normalizedType = normalizeTypeFilter(type);
+        String normalizedKeyword = normalizeSearchKeyword(keyword);
+        List<ChordShape> result = new ArrayList<>();
+        for (ChordShape shape : shapes) {
+            if (!canonicalRoot.isEmpty() && !canonicalRoot.equals(shape.root)) {
+                continue;
+            }
+            if (!normalizedType.isEmpty() && !matchesType(shape, normalizedType)) {
+                continue;
+            }
+            if (difficultyBucket > 0 && !matchesDifficulty(shape, difficultyBucket)) {
+                continue;
+            }
+            if (!normalizedKeyword.isEmpty() && !matchesKeyword(shape, normalizedKeyword)) {
+                continue;
+            }
+            result.add(shape);
+        }
+        return result;
+    }
+
+    private boolean matchesType(ChordShape shape, String type) {
+        if ("slash".equals(type)) {
+            return shape.isSlash();
+        }
+        ChordQuality quality = qualitiesById.get(shape.qualityId);
+        if ("sus".equals(type)) {
+            return quality != null && "suspended".equals(quality.category);
+        }
+        if ("add".equals(type)) {
+            return quality != null && "added".equals(quality.category);
+        }
+        return type.equals(shape.qualityId);
+    }
+
+    private boolean matchesDifficulty(ChordShape shape, int bucket) {
+        if (bucket == 1) {
+            return shape.difficulty <= 2;
+        }
+        if (bucket == 2) {
+            return shape.difficulty == 3;
+        }
+        return shape.difficulty >= 4;
+    }
+
+    private boolean matchesKeyword(ChordShape shape, String keyword) {
+        ChordQuality quality = qualitiesById.get(shape.qualityId);
+        String symbol = shape.symbol(quality);
+        Set<String> values = new LinkedHashSet<>();
+        values.add(symbol);
+        values.add(shape.name);
+        values.add(shape.root);
+        values.add(shape.bassNote);
+        values.add(shape.qualityId);
+        values.add(shape.shapeType);
+        values.add(shape.note);
+        values.add(shape.fretPattern());
+        values.add(shape.difficultyLabel());
+        if (quality != null) {
+            values.add(quality.displayName);
+            values.add(quality.chineseName);
+            values.add(quality.category);
+            values.add(quality.description);
+            for (String label : quality.intervalLabels) {
+                values.add(label);
+            }
+        }
+        Chord chord = chordsBySymbol.get(symbol);
+        if (chord != null) {
+            values.add(chord.chineseName);
+            values.add(chord.quality);
+            values.addAll(chord.notes);
+            values.addAll(chord.aliases);
+        }
+        String normalizedSymbol = canonicalLookupKey(keyword);
+        for (String value : values) {
+            if (contains(value, keyword) || (!normalizedSymbol.isEmpty() && canonicalLookupKey(value).contains(normalizedSymbol))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void registerAlias(String alias, Chord chord) {
+        ChordNameParser.ParseResult parsed = nameParser.parse(alias);
+        String key = parsed.recognized ? parsed.normalizedSymbol : canonicalLookupKey(alias);
+        if (!key.isEmpty()) {
+            chordsByAlias.put(key, chord);
+        }
+    }
+
+    private void applyLoadedData(ChordDataLoader.LoadedData loaded) {
+        formulaRepository = loaded.formulas;
+        guitarVoicingRepository = loaded.voicings;
+        for (ChordFormula formula : formulaRepository.getAll()) {
+            registerQuality(formula.toChordQuality());
+        }
+        for (ChordShape shape : guitarVoicingRepository.getAllShapes()) {
+            registerShape(shape);
+        }
+        initializeEngines();
+        usingFallbackData = false;
+        dataLoadMessage = "Loaded chord JSON from " + loaded.sourceDescription + ".";
+    }
+
+    private void loadSafeFallback(String reason) {
+        qualitiesById.clear();
+        shapes.clear();
+        ChordLibraryData.populate(this);
+        List<ChordFormula> formulas = new ArrayList<>();
+        for (ChordQuality quality : qualitiesById.values()) {
+            formulas.add(ChordFormula.fromQuality(quality));
+        }
+        formulaRepository = new ChordFormulaRepository(formulas);
+        List<GuitarVoicingDefinition> voicings = new ArrayList<>();
+        int index = 1;
+        for (ChordShape shape : shapes) {
+            voicings.add(GuitarVoicingDefinition.fromChordShape(
+                    shape,
+                    qualitiesById.get(shape.qualityId),
+                    index++
+            ));
+        }
+        guitarVoicingRepository = new GuitarVoicingRepository(formulaRepository, voicings);
+        initializeEngines();
+        usingFallbackData = true;
+        dataLoadMessage = "Chord JSON unavailable; using safe built-in fallback. " + (reason == null ? "" : reason);
+    }
+
+    private void initializeEngines() {
+        theoryEngine = new ChordTheoryEngine();
+        nameParser = new ChordNameParser(formulaRepository);
+    }
+
+    private String canonicalLookupKey(String symbol) {
+        ChordNameParser.ParseResult parsed = nameParser.parse(symbol);
+        if (parsed.recognized) {
+            return parsed.normalizedSymbol;
+        }
+        return symbol == null ? "" : symbol.trim().toUpperCase(Locale.US);
+    }
+
+    private static String normalizeSearchKeyword(String keyword) {
+        return keyword == null ? "" : keyword.trim().toLowerCase(Locale.CHINA);
+    }
+
+    private static boolean contains(String value, String keyword) {
+        return value != null && keyword != null
+                && value.toLowerCase(Locale.CHINA).contains(keyword.toLowerCase(Locale.CHINA));
+    }
+
+    private String canonicalRootFilter(String root) {
+        if (root == null || root.trim().isEmpty() || "全部".equals(root)) {
             return "";
         }
-        if (quality.startsWith("/")) {
-            return "/" + normalizeBassNote(quality.substring(1));
+        String cleaned = root.replace(" ", "").replace("♯", "#").replace("♭", "b");
+        int slash = cleaned.indexOf('/');
+        if (slash >= 0) {
+            cleaned = cleaned.substring(0, slash);
         }
-        String lower = quality.toLowerCase(Locale.US);
-        if (lower.equals("maj") || lower.equals("major")) {
+        return NoteUtils.canonicalPitchClass(cleaned);
+    }
+
+    private static String normalizeTypeFilter(String type) {
+        if (type == null || type.trim().isEmpty() || "全部".equals(type)) {
             return "";
         }
-        if (lower.equals("m") || lower.equals("min") || lower.equals("minor") || lower.equals("-")) {
+        String value = type.trim().toLowerCase(Locale.CHINA);
+        if (value.contains("大三") || value.equals("major") || value.equals("maj")) {
+            return "maj";
+        }
+        if (value.contains("小三") || value.equals("minor") || value.equals("min") || value.equals("m")) {
             return "m";
         }
-        if (lower.equals("maj7") || quality.equals("M7") || lower.equals("major7")) {
+        if (value.contains("属七") || value.equals("dominant") || value.equals("dom7") || value.equals("7")) {
+            return "7";
+        }
+        if (value.contains("大七") || value.equals("major7") || value.equals("maj7") || value.equals("m7+")) {
             return "maj7";
         }
-        if (lower.equals("m7") || lower.equals("min7") || lower.equals("minor7") || lower.equals("-7")) {
+        if (value.contains("小七") || value.equals("minor7") || value.equals("min7")) {
             return "m7";
         }
-        if (lower.equals("dim")) {
+        if (value.startsWith("sus") || value.contains("挂")) {
+            return "sus";
+        }
+        if (value.startsWith("add") || value.contains("加")) {
+            return "add";
+        }
+        if (value.contains("dim") || value.contains("减")) {
             return "dim";
         }
-        if (lower.equals("aug")) {
+        if (value.contains("aug") || value.contains("增")) {
             return "aug";
         }
-        if (lower.equals("sus2")) {
-            return "sus2";
+        if (value.contains("slash") || value.contains("分数")) {
+            return "slash";
         }
-        if (lower.equals("sus4")) {
-            return "sus4";
-        }
-        if (lower.equals("add9")) {
-            return "add9";
-        }
-        return quality;
-    }
-
-    private static String normalizeBassNote(String bass) {
-        if (bass.isEmpty()) {
-            return bass;
-        }
-        String cleaned = bass.replace("♯", "#").replace("♭", "b");
-        StringBuilder builder = new StringBuilder();
-        builder.append(Character.toUpperCase(cleaned.charAt(0)));
-        if (cleaned.length() > 1) {
-            char accidental = cleaned.charAt(1);
-            if (accidental == '#') {
-                builder.append('#');
-            } else if (accidental == 'b' || accidental == 'B') {
-                builder.append('b');
-            }
-        }
-        return builder.toString();
-    }
-
-    private static int[] a(int... values) {
-        return values;
-    }
-
-    private static <T> List<T> list(T... values) {
-        return Arrays.asList(values);
-    }
-
-    private static Voicing voicing(
-            String name,
-            int[] frets,
-            int[] fingers,
-            int startFret,
-            int displayFrets,
-            String difficulty,
-            boolean recommended,
-            boolean simplified,
-            boolean barre,
-            String description
-    ) {
-        return new Voicing(name, frets, fingers, startFret, displayFrets, difficulty, recommended, simplified, barre, description);
+        return value;
     }
 
     public static final class LookupResult {
@@ -493,23 +503,4 @@ public final class ChordRepository {
         }
     }
 
-    private static final class NormalizedInput {
-        final String symbol;
-        final String error;
-        final boolean changed;
-
-        private NormalizedInput(String symbol, String error, boolean changed) {
-            this.symbol = symbol == null ? null : canonicalLookupKey(symbol);
-            this.error = error;
-            this.changed = changed;
-        }
-
-        static NormalizedInput success(String symbol, boolean changed) {
-            return new NormalizedInput(symbol, null, changed);
-        }
-
-        static NormalizedInput error(String error) {
-            return new NormalizedInput(null, error, false);
-        }
-    }
 }

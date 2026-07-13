@@ -4,6 +4,13 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">#FFFFFF</item>
         <item name="android:navigationBarColor">#FFFFFF</item>
-        <item name="android:colorAccent">#4F7DFF</item>
+        <item name="android:colorAccent">#2563FF</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+    </style>
+
+    <style name="AppStartingTheme" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F6F3EC</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
     </style>
 </resources>

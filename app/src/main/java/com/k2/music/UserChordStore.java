@@ -16,9 +16,18 @@ public final class UserChordStore {
     private static final String SEPARATOR = "|";
 
     private final SharedPreferences preferences;
+    private final ChordRepository repository;
 
     public UserChordStore(Context context) {
+        this(context, null);
+    }
+
+    public UserChordStore(Context context, ChordRepository repository) {
         this.preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        this.repository = repository;
+        if (repository != null) {
+            migrateStoredSymbols();
+        }
     }
 
     public List<String> favorites() {
@@ -30,10 +39,14 @@ public final class UserChordStore {
     }
 
     public boolean isFavorite(String symbol) {
-        return favorites().contains(symbol);
+        return favorites().contains(normalizeSymbol(symbol));
     }
 
     public boolean toggleFavorite(String symbol) {
+        symbol = normalizeSymbol(symbol);
+        if (symbol.isEmpty()) {
+            return false;
+        }
         List<String> favorites = favorites();
         boolean nowFavorite;
         if (favorites.contains(symbol)) {
@@ -48,6 +61,10 @@ public final class UserChordStore {
     }
 
     public void addHistory(String symbol) {
+        symbol = normalizeSymbol(symbol);
+        if (symbol.isEmpty()) {
+            return;
+        }
         List<String> history = history();
         history.remove(symbol);
         history.add(0, symbol);
@@ -55,6 +72,20 @@ public final class UserChordStore {
             history = new ArrayList<>(history.subList(0, MAX_HISTORY));
         }
         writeList(KEY_HISTORY, history);
+    }
+
+    /** Removes one normalized history entry without changing the persisted format. */
+    public boolean removeHistory(String symbol) {
+        symbol = normalizeSymbol(symbol);
+        if (symbol.isEmpty()) {
+            return false;
+        }
+        List<String> history = history();
+        boolean removed = history.remove(symbol);
+        if (removed) {
+            writeList(KEY_HISTORY, history);
+        }
+        return removed;
     }
 
     private List<String> readList(String key) {
@@ -69,6 +100,33 @@ public final class UserChordStore {
 
     private void writeList(String key, List<String> values) {
         preferences.edit().putString(key, join(values)).apply();
+    }
+
+    public void migrateStoredSymbols() {
+        if (repository == null) {
+            return;
+        }
+        migrateList(KEY_FAVORITES, false);
+        migrateList(KEY_HISTORY, true);
+    }
+
+    private void migrateList(String key, boolean limitHistory) {
+        List<String> source = readList(key);
+        List<String> migrated = ChordSymbolMigration.normalize(
+                source, repository, limitHistory ? MAX_HISTORY : 0
+        );
+        if (!source.equals(migrated)) {
+            writeList(key, migrated);
+        }
+    }
+
+    private String normalizeSymbol(String symbol) {
+        String value = symbol == null ? "" : symbol.trim();
+        if (value.isEmpty() || repository == null) {
+            return value;
+        }
+        ChordRepository.LookupResult result = repository.find(value);
+        return result.recognized ? result.chord.symbol : value;
     }
 
     private String join(List<String> values) {

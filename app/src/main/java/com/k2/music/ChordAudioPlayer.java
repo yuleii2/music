@@ -11,12 +11,20 @@ public final class ChordAudioPlayer {
     private AudioTrack currentTrack;
 
     public boolean play(int[] midiNotes) {
+        return playInternal(midiNotes, 1.8, 0.018);
+    }
+
+    public boolean playArpeggio(int[] midiNotes) {
+        return playInternal(midiNotes, 2.8, 0.24);
+    }
+
+    private boolean playInternal(int[] midiNotes, double seconds, double noteSpacingSeconds) {
         stop();
         if (midiNotes == null || midiNotes.length == 0) {
             return false;
         }
         try {
-            short[] samples = renderChord(midiNotes, 1.8);
+            short[] samples = renderChord(midiNotes, seconds, noteSpacingSeconds);
             AudioTrack track = new AudioTrack.Builder()
                     .setAudioAttributes(new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -67,7 +75,7 @@ public final class ChordAudioPlayer {
         currentTrack = null;
     }
 
-    private static short[] renderChord(int[] midiNotes, double seconds) {
+    private static short[] renderChord(int[] midiNotes, double seconds, double noteSpacingSeconds) {
         int totalSamples = (int) (SAMPLE_RATE * seconds);
         short[] samples = new short[totalSamples];
         double gain = 0.62 / Math.max(1, midiNotes.length);
@@ -79,7 +87,7 @@ public final class ChordAudioPlayer {
                 if (midi <= 0) {
                     continue;
                 }
-                double start = noteIndex * 0.018;
+                double start = noteIndex * noteSpacingSeconds;
                 if (t < start) {
                     continue;
                 }

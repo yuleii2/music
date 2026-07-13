@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="5" failures="0" errors="0" skipped="3" time="569.494" timestamp="2026-07-12T11:30:38" hostname="localhost">
+  <testsuite name="com.k2.music.benchmark.BaselineProfileGenerator" tests="2" failures="0" errors="0" skipped="0" time="567.617" timestamp="2026-07-12T11:30:38" hostname="localhost">
+    <properties>
+      <property name="device" value="K2_Music_API35(AVD) - 15" />
+      <property name="flavor" value="" />
+      <property name="project" value=":benchmark" />
+    </properties>
+    <testcase name="startup" classname="com.k2.music.benchmark.BaselineProfileGenerator" time="106.428" />
+    <testcase name="criticalJourneys" classname="com.k2.music.benchmark.BaselineProfileGenerator" time="461.189" />
+  </testsuite>
+  <testsuite name="com.k2.music.benchmark.MusicMacrobenchmark" tests="3" failures="0" errors="0" skipped="3" time="0.029" timestamp="2026-07-12T11:30:38" hostname="localhost">
+    <properties>
+      <property name="device" value="K2_Music_API35(AVD) - 15" />
+      <property name="flavor" value="" />
+      <property name="project" value=":benchmark" />
+    </properties>
+    <testcase name="coldStartup" classname="com.k2.music.benchmark.MusicMacrobenchmark" time="0.011">
+      <skipped />
+    </testcase>
+    <testcase name="libraryDetailAndVoicing" classname="com.k2.music.benchmark.MusicMacrobenchmark" time="0.009">
+      <skipped />
+    </testcase>
+    <testcase name="progressionPlaybackAndPractice" classname="com.k2.music.benchmark.MusicMacrobenchmark" time="0.009">
+      <skipped />
+    </testcase>
+  </testsuite>
+</testsuites>

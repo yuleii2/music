@@ -1,4 +1,9 @@
 plugins {
     id "com.android.application" version "9.2.0" apply false
+    id "com.android.test" version "9.2.0" apply false
+    // 1.5 is required for AGP 9's new DSL; alpha07 is the current AndroidX release.
+    id "androidx.baselineprofile" version "1.5.0-alpha07" apply false
+    // AGP 9.2 has built-in Kotlin support. Applying the stable Compose
+    // compiler plugin upgrades the shared Kotlin toolchain consistently.
+    id "org.jetbrains.kotlin.plugin.compose" version "2.3.21" apply false
 }
-

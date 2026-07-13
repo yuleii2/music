@@ -18,6 +18,7 @@ import java.util.Locale;
 public final class VoicingImageExporter {
     public static final String FORMAT_JPG = "jpg";
     public static final String FORMAT_PNG = "png";
+    public static final String FORMAT_SVG = "svg";
 
     private VoicingImageExporter() {
     }
@@ -29,21 +30,44 @@ public final class VoicingImageExporter {
             String format,
             List<ExportItem> items
     ) {
+        if (FORMAT_SVG.equalsIgnoreCase(format)) {
+            return VoicingSvgExporter.export(context, folderUri, baseName, items);
+        }
         ExportSummary summary = new ExportSummary();
+        if (context == null || folderUri == null || items == null || items.isEmpty()) {
+            return summary;
+        }
         ContentResolver resolver = context.getContentResolver();
         String extension = extension(format);
         String mimeType = mimeType(format);
         Bitmap.CompressFormat compressFormat = compressFormat(format);
         String safeBase = sanitizeFileName(baseName);
-        Uri parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
-                folderUri,
-                DocumentsContract.getTreeDocumentId(folderUri)
-        );
+        Uri parentDocumentUri;
+        try {
+            parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+                    folderUri,
+                    DocumentsContract.getTreeDocumentId(folderUri)
+            );
+        } catch (RuntimeException exception) {
+            summary.failed = items.size();
+            return summary;
+        }
 
-        for (ExportItem item : items) {
+        for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
+            if (Thread.currentThread().isInterrupted()) {
+                summary.failed += items.size() - itemIndex;
+                break;
+            }
+            ExportItem item = items.get(itemIndex);
+            if (item == null || item.chord == null || item.voicing == null) {
+                summary.failed++;
+                continue;
+            }
             String fileName = buildFileName(safeBase, item, extension);
+            Uri documentUri = null;
+            boolean completed = false;
             try {
-                Uri documentUri = DocumentsContract.createDocument(resolver, parentDocumentUri, mimeType, fileName);
+                documentUri = DocumentsContract.createDocument(resolver, parentDocumentUri, mimeType, fileName);
                 if (documentUri == null) {
                     summary.failed++;
                     continue;
@@ -55,22 +79,25 @@ public final class VoicingImageExporter {
                     } else {
                         summary.exported++;
                         summary.fileNames.add(fileName);
+                        completed = true;
                     }
                 } finally {
                     bitmap.recycle();
                 }
             } catch (RuntimeException | IOException exception) {
                 summary.failed++;
+            } finally {
+                if (!completed && documentUri != null) deleteQuietly(resolver, documentUri);
             }
         }
         return summary;
     }
 
-    private static Bitmap render(Context context, Chord chord, Voicing voicing) {
-        int width = 1600;
-        int height = 3200;
+    static Bitmap render(Context context, Chord chord, Voicing voicing) {
+        int width = 1200;
+        int height = 2400;
         float scale = width / 400f;
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
         Canvas canvas = new Canvas(bitmap);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
@@ -96,7 +123,10 @@ public final class VoicingImageExporter {
         drawBadge(canvas, paint, voicing.recommended ? "推荐" : "候选", 270 * scale, 218 * scale, scale);
 
         RectF board = new RectF(22 * scale, 260 * scale, 378 * scale, 520 * scale);
-        FretboardDiagramRenderer.draw(canvas, board, voicing, scale, true);
+        FretboardDiagramRenderer.draw(canvas, board, voicing, scale, true, paint);
+        // The shared fretboard renderer uses centered text for fret/string labels.
+        // Restore left alignment before drawing the document's prose section.
+        paint.setTextAlign(Paint.Align.LEFT);
 
         RectF info = new RectF(22 * scale, 542 * scale, 378 * scale, 760 * scale);
         paint.setStyle(Paint.Style.FILL);
@@ -163,7 +193,7 @@ public final class VoicingImageExporter {
         return y;
     }
 
-    private static String buildFileName(String safeBase, ExportItem item, String extension) {
+    static String buildFileName(String safeBase, ExportItem item, String extension) {
         return safeBase
                 + "-"
                 + sanitizeFileName(item.chord.symbol)
@@ -175,7 +205,7 @@ public final class VoicingImageExporter {
                 + extension;
     }
 
-    private static String sanitizeFileName(String value) {
+    static String sanitizeFileName(String value) {
         String trimmed = value == null ? "" : value.trim();
         if (trimmed.isEmpty()) {
             trimmed = "guitar-chords";
@@ -204,6 +234,14 @@ public final class VoicingImageExporter {
         return FORMAT_PNG.equalsIgnoreCase(format) ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG;
     }
 
+    private static void deleteQuietly(ContentResolver resolver, Uri documentUri) {
+        try {
+            DocumentsContract.deleteDocument(resolver, documentUri);
+        } catch (RuntimeException | IOException ignored) {
+            // The provider may not support deletion; preserve the original failure count.
+        }
+    }
+
     private static String summaryText(Chord chord) {
         if (chord.bassNote != null && !chord.bassNote.isEmpty()) {
             return "根音：" + chord.root + "    低音：" + chord.bassNote + "    类型：" + chord.quality;
@@ -212,25 +250,11 @@ public final class VoicingImageExporter {
     }
 
     private static String join(Iterable<String> values) {
-        StringBuilder builder = new StringBuilder();
-        for (String value : values) {
-            if (builder.length() > 0) {
-                builder.append("、");
-            }
-            builder.append(value);
-        }
-        return builder.toString();
+        return StringUtils.joinChinese(values);
     }
 
     private static String joinStringArray(String[] values) {
-        StringBuilder builder = new StringBuilder();
-        for (String value : values) {
-            if (builder.length() > 0) {
-                builder.append("、");
-            }
-            builder.append(value == null ? "X" : value);
-        }
-        return builder.toString();
+        return StringUtils.joinStringArray(values);
     }
 
     public static final class ExportItem {

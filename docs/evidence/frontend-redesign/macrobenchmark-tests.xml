@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="3" failures="0" errors="0" skipped="0" time="415.652" timestamp="2026-07-12T10:23:30" hostname="localhost">
+  <testsuite name="com.k2.music.benchmark.MusicMacrobenchmark" tests="3" failures="0" errors="0" skipped="0" time="409.926" timestamp="2026-07-12T10:23:30" hostname="localhost">
+    <properties>
+      <property name="device" value="K2_Music_API35(AVD) - 15" />
+      <property name="flavor" value="" />
+      <property name="project" value=":benchmark" />
+    </properties>
+    <testcase name="coldStartup" classname="com.k2.music.benchmark.MusicMacrobenchmark" time="138.082" />
+    <testcase name="libraryDetailAndVoicing" classname="com.k2.music.benchmark.MusicMacrobenchmark" time="104.073" />
+    <testcase name="progressionPlaybackAndPractice" classname="com.k2.music.benchmark.MusicMacrobenchmark" time="167.771" />
+  </testsuite>
+</testsuites>

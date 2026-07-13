@@ -1,0 +1,530 @@
+{
+  "schemaVersion": 1,
+  "formulas": [
+    {
+      "id": "maj",
+      "suffix": "",
+      "chineseName": "大三和弦",
+      "englishName": "Major triad",
+      "intervals": [
+        "1",
+        "3",
+        "5"
+      ],
+      "aliases": [
+        "maj",
+        "major",
+        "M"
+      ],
+      "description": "由根音、大三度和纯五度构成，声音明亮、稳定。",
+      "category": "triad",
+      "difficulty": 1
+    },
+    {
+      "id": "m",
+      "suffix": "m",
+      "chineseName": "小三和弦",
+      "englishName": "Minor triad",
+      "intervals": [
+        "1",
+        "b3",
+        "5"
+      ],
+      "aliases": [
+        "m",
+        "min",
+        "minor",
+        "-"
+      ],
+      "description": "由根音、小三度和纯五度构成，声音柔和而偏暗。",
+      "category": "triad",
+      "difficulty": 1
+    },
+    {
+      "id": "7",
+      "suffix": "7",
+      "chineseName": "属七和弦",
+      "englishName": "Dominant seventh",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "b7"
+      ],
+      "aliases": [
+        "7",
+        "dom7",
+        "dominant7"
+      ],
+      "description": "在大三和弦上加入小七度，具有明显的向主和弦解决倾向。",
+      "category": "seventh",
+      "difficulty": 2
+    },
+    {
+      "id": "maj7",
+      "suffix": "maj7",
+      "chineseName": "大七和弦",
+      "englishName": "Major seventh",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "7"
+      ],
+      "aliases": [
+        "maj7",
+        "M7",
+        "Δ7",
+        "△7"
+      ],
+      "description": "在大三和弦上加入大七度，声音明亮、柔和并富有延展感。",
+      "category": "seventh",
+      "difficulty": 2
+    },
+    {
+      "id": "m7",
+      "suffix": "m7",
+      "chineseName": "小七和弦",
+      "englishName": "Minor seventh",
+      "intervals": [
+        "1",
+        "b3",
+        "5",
+        "b7"
+      ],
+      "aliases": [
+        "m7",
+        "min7",
+        "minor7",
+        "-7"
+      ],
+      "description": "在小三和弦上加入小七度，常见于流行、民谣、布鲁斯和爵士。",
+      "category": "seventh",
+      "difficulty": 2
+    },
+    {
+      "id": "mMaj7",
+      "suffix": "mMaj7",
+      "chineseName": "小大七和弦",
+      "englishName": "Minor major seventh",
+      "intervals": [
+        "1",
+        "b3",
+        "5",
+        "7"
+      ],
+      "aliases": [
+        "mMaj7",
+        "minMaj7",
+        "mM7",
+        "-M7"
+      ],
+      "description": "小三和弦与大七度叠置，兼具阴暗色彩和强烈张力。",
+      "category": "seventh",
+      "difficulty": 4
+    },
+    {
+      "id": "6",
+      "suffix": "6",
+      "chineseName": "大六和弦",
+      "englishName": "Major sixth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "6"
+      ],
+      "aliases": [
+        "6",
+        "maj6",
+        "major6"
+      ],
+      "description": "在大三和弦上加入大六度，声音温暖而开阔。",
+      "category": "sixth",
+      "difficulty": 2
+    },
+    {
+      "id": "m6",
+      "suffix": "m6",
+      "chineseName": "小六和弦",
+      "englishName": "Minor sixth",
+      "intervals": [
+        "1",
+        "b3",
+        "5",
+        "6"
+      ],
+      "aliases": [
+        "m6",
+        "min6",
+        "minor6",
+        "-6"
+      ],
+      "description": "在小三和弦上加入大六度，常带有爵士和电影配乐色彩。",
+      "category": "sixth",
+      "difficulty": 3
+    },
+    {
+      "id": "9",
+      "suffix": "9",
+      "chineseName": "属九和弦",
+      "englishName": "Dominant ninth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "b7",
+        "9"
+      ],
+      "aliases": [
+        "9",
+        "dom9",
+        "dominant9"
+      ],
+      "description": "在属七和弦上加入九度，常用于布鲁斯、放克和爵士。",
+      "category": "extended",
+      "difficulty": 3
+    },
+    {
+      "id": "maj9",
+      "suffix": "maj9",
+      "chineseName": "大九和弦",
+      "englishName": "Major ninth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "7",
+        "9"
+      ],
+      "aliases": [
+        "maj9",
+        "M9",
+        "Δ9",
+        "△9"
+      ],
+      "description": "大七和弦加入九度，声音通透、宽广而富有现代感。",
+      "category": "extended",
+      "difficulty": 4
+    },
+    {
+      "id": "m9",
+      "suffix": "m9",
+      "chineseName": "小九和弦",
+      "englishName": "Minor ninth",
+      "intervals": [
+        "1",
+        "b3",
+        "5",
+        "b7",
+        "9"
+      ],
+      "aliases": [
+        "m9",
+        "min9",
+        "minor9",
+        "-9"
+      ],
+      "description": "小七和弦加入九度，声音柔和、深沉且富有层次。",
+      "category": "extended",
+      "difficulty": 4
+    },
+    {
+      "id": "add9",
+      "suffix": "add9",
+      "chineseName": "加九和弦",
+      "englishName": "Added ninth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "9"
+      ],
+      "aliases": [
+        "add9",
+        "add2"
+      ],
+      "description": "在大三和弦上加入九度但不包含七度，流行音乐中十分常见。",
+      "category": "added-tone",
+      "difficulty": 2
+    },
+    {
+      "id": "sus2",
+      "suffix": "sus2",
+      "chineseName": "挂二和弦",
+      "englishName": "Suspended second",
+      "intervals": [
+        "1",
+        "2",
+        "5"
+      ],
+      "aliases": [
+        "sus2",
+        "s2"
+      ],
+      "description": "用二度音替代三度音，声音开放而悬而未决。",
+      "category": "suspended",
+      "difficulty": 1
+    },
+    {
+      "id": "sus4",
+      "suffix": "sus4",
+      "chineseName": "挂四和弦",
+      "englishName": "Suspended fourth",
+      "intervals": [
+        "1",
+        "4",
+        "5"
+      ],
+      "aliases": [
+        "sus4",
+        "sus",
+        "s4"
+      ],
+      "description": "用四度音替代三度音，常与大三和弦交替形成解决感。",
+      "category": "suspended",
+      "difficulty": 1
+    },
+    {
+      "id": "dim",
+      "suffix": "dim",
+      "chineseName": "减三和弦",
+      "englishName": "Diminished triad",
+      "intervals": [
+        "1",
+        "b3",
+        "b5"
+      ],
+      "aliases": [
+        "dim",
+        "°",
+        "o"
+      ],
+      "description": "由两个小三度叠置而成，声音紧张且不稳定。",
+      "category": "altered",
+      "difficulty": 3
+    },
+    {
+      "id": "dim7",
+      "suffix": "dim7",
+      "chineseName": "减七和弦",
+      "englishName": "Diminished seventh",
+      "intervals": [
+        "1",
+        "b3",
+        "b5",
+        "bb7"
+      ],
+      "aliases": [
+        "dim7",
+        "°7",
+        "o7"
+      ],
+      "description": "由连续小三度构成的对称和弦，常用于经过、转调和制造张力。",
+      "category": "seventh",
+      "difficulty": 4
+    },
+    {
+      "id": "m7b5",
+      "suffix": "m7b5",
+      "chineseName": "半减七和弦",
+      "englishName": "Half-diminished seventh",
+      "intervals": [
+        "1",
+        "b3",
+        "b5",
+        "b7"
+      ],
+      "aliases": [
+        "m7b5",
+        "ø",
+        "ø7",
+        "half-diminished"
+      ],
+      "description": "减三和弦加入小七度，常见于小调的二级和弦。",
+      "category": "seventh",
+      "difficulty": 4
+    },
+    {
+      "id": "aug",
+      "suffix": "aug",
+      "chineseName": "增三和弦",
+      "englishName": "Augmented triad",
+      "intervals": [
+        "1",
+        "3",
+        "#5"
+      ],
+      "aliases": [
+        "aug",
+        "+"
+      ],
+      "description": "大三和弦升高五度，声音向外扩张并带有不稳定感。",
+      "category": "altered",
+      "difficulty": 3
+    },
+    {
+      "id": "5",
+      "suffix": "5",
+      "chineseName": "五和弦",
+      "englishName": "Power chord",
+      "intervals": [
+        "1",
+        "5"
+      ],
+      "aliases": [
+        "5",
+        "power",
+        "power5"
+      ],
+      "description": "仅保留根音和五度，常以八度重复，适合摇滚和失真音色。",
+      "category": "dyad",
+      "difficulty": 1
+    },
+    {
+      "id": "7sus4",
+      "suffix": "7sus4",
+      "chineseName": "属七挂四和弦",
+      "englishName": "Dominant seventh suspended fourth",
+      "intervals": [
+        "1",
+        "4",
+        "5",
+        "b7"
+      ],
+      "aliases": [
+        "7sus4",
+        "7sus"
+      ],
+      "description": "属七和弦以四度替代三度，兼具悬挂感和属功能。",
+      "category": "suspended",
+      "difficulty": 3
+    },
+    {
+      "id": "7b5",
+      "suffix": "7b5",
+      "chineseName": "属七降五和弦",
+      "englishName": "Dominant seventh flat five",
+      "intervals": [
+        "1",
+        "3",
+        "b5",
+        "b7"
+      ],
+      "aliases": [
+        "7b5",
+        "7♭5"
+      ],
+      "description": "属七和弦降低五度，产生锐利而不稳定的张力。",
+      "category": "altered-dominant",
+      "difficulty": 4
+    },
+    {
+      "id": "7#5",
+      "suffix": "7#5",
+      "chineseName": "属七升五和弦",
+      "englishName": "Dominant seventh sharp five",
+      "intervals": [
+        "1",
+        "3",
+        "#5",
+        "b7"
+      ],
+      "aliases": [
+        "7#5",
+        "7♯5",
+        "7aug",
+        "aug7",
+        "+7"
+      ],
+      "description": "属七和弦升高五度，常用于增强向目标和弦的半音解决。",
+      "category": "altered-dominant",
+      "difficulty": 4
+    },
+    {
+      "id": "7b9",
+      "suffix": "7b9",
+      "chineseName": "属七降九和弦",
+      "englishName": "Dominant seventh flat ninth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "b7",
+        "b9"
+      ],
+      "aliases": [
+        "7b9",
+        "7♭9"
+      ],
+      "description": "属七和弦加入降九度，具有强烈的小调属功能色彩。",
+      "category": "altered-dominant",
+      "difficulty": 5
+    },
+    {
+      "id": "7#9",
+      "suffix": "7#9",
+      "chineseName": "属七升九和弦",
+      "englishName": "Dominant seventh sharp ninth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "b7",
+        "#9"
+      ],
+      "aliases": [
+        "7#9",
+        "7♯9"
+      ],
+      "description": "属七和弦加入升九度，常见于布鲁斯、摇滚和放克。",
+      "category": "altered-dominant",
+      "difficulty": 5
+    },
+    {
+      "id": "11",
+      "suffix": "11",
+      "chineseName": "属十一和弦",
+      "englishName": "Dominant eleventh",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "b7",
+        "9",
+        "11"
+      ],
+      "aliases": [
+        "11",
+        "dom11",
+        "dominant11"
+      ],
+      "description": "属九和弦继续加入十一度；实际配器中常省略部分音以避免拥挤。",
+      "category": "extended",
+      "difficulty": 5
+    },
+    {
+      "id": "13",
+      "suffix": "13",
+      "chineseName": "属十三和弦",
+      "englishName": "Dominant thirteenth",
+      "intervals": [
+        "1",
+        "3",
+        "5",
+        "b7",
+        "9",
+        "11",
+        "13"
+      ],
+      "aliases": [
+        "13",
+        "dom13",
+        "dominant13"
+      ],
+      "description": "属和弦向上扩展至十三度；吉他按法通常省略五度或十一度。",
+      "category": "extended",
+      "difficulty": 5
+    }
+  ]
+}

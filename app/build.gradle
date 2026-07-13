@@ -1,10 +1,12 @@
 plugins {
     id "com.android.application"
+    id "org.jetbrains.kotlin.plugin.compose"
+    id "androidx.baselineprofile"
 }
 
 android {
     namespace "com.k2.music"
-    compileSdk 36
+    compileSdk 37
 
     defaultConfig {
         applicationId "com.k2.music"
@@ -12,12 +14,65 @@ android {
         targetSdk 36
         versionCode 4
         versionName "1.3"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    buildFeatures {
+        compose true
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt")
+            // The benchmark variant must remain non-debuggable but installable locally.
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+baselineProfile {
+    automaticGenerationDuringBuild true
+    mergeIntoMain true
+    saveInSrc true
+}
+
+dependencies {
+    def composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+    implementation composeBom
+    androidTestImplementation composeBom
+
+    implementation "androidx.activity:activity-compose:1.13.0"
+    implementation "androidx.core:core-splashscreen:1.2.0"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.11.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0"
+    implementation "androidx.navigation:navigation-compose:2.9.8"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.material:material-icons-extended"
+    implementation "androidx.compose.material3.adaptive:adaptive:1.2.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
+    implementation "androidx.profileinstaller:profileinstaller:1.4.1"
+
+    baselineProfile project(":benchmark")
+
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0"
+
+    androidTestImplementation "androidx.test:core:1.7.0"
+    androidTestImplementation "androidx.test.ext:junit:1.3.0"
+    androidTestImplementation "androidx.test:runner:1.7.0"
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4"
+    debugImplementation "androidx.compose.ui:ui-test-manifest"
 }
 
 def appPackageBaseName = "guitar-chord-dictionary"
@@ -37,6 +92,20 @@ tasks.matching { it.name == "assembleDebug" }.configureEach {
 }
 
 def smokeTestClasses = layout.buildDirectory.dir("smokeTestClasses")
+def phaseOneTestClasses = layout.buildDirectory.dir("phaseOneTestClasses")
+
+tasks.register("compilePhaseOneJvmTests", JavaCompile) {
+    dependsOn("compileDebugJavaWithJavac")
+    source = fileTree("src/test/java") {
+        include "**/ChordRepositorySmokeTest.java"
+        include "**/ChordTheoryParserTest.java"
+        include "**/SvgVoicingRendererTest.java"
+    }
+    classpath = files("$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes")
+    destinationDirectory = phaseOneTestClasses
+    options.release = 17
+    options.encoding = "UTF-8"
+}
 
 tasks.register("compileChordDataSmokeTest", JavaCompile) {
     dependsOn("compileDebugJavaWithJavac")
@@ -50,10 +119,63 @@ tasks.register("compileChordDataSmokeTest", JavaCompile) {
 }
 
 tasks.register("chordDataSmokeTest", JavaExec) {
+    dependsOn("compilePhaseOneJvmTests")
+    classpath = files(
+            phaseOneTestClasses,
+            "$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
+    )
+    mainClass = "com.k2.music.ChordRepositorySmokeTest"
+}
+
+tasks.register("chordTheoryParserTest", JavaExec) {
+    dependsOn("compilePhaseOneJvmTests")
+    classpath = files(
+            phaseOneTestClasses,
+            "$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
+    )
+    mainClass = "com.k2.music.ChordTheoryParserTest"
+}
+
+tasks.register("svgVoicingRendererTest", JavaExec) {
+    dependsOn("compilePhaseOneJvmTests")
+    classpath = files(
+            phaseOneTestClasses,
+            "$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
+    )
+    mainClass = "com.k2.music.SvgVoicingRendererTest"
+}
+
+tasks.register("phaseOneJvmTest") {
+    group = "verification"
+    description = "Runs the Phase 1 chord-data, parser/theory, and SVG JVM tests."
+    dependsOn("chordDataSmokeTest", "chordTheoryParserTest", "svgVoicingRendererTest")
+}
+
+tasks.register("advancedMusicToolsSmokeTest", JavaExec) {
     dependsOn("compileChordDataSmokeTest")
     classpath = files(
             smokeTestClasses,
             "$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
     )
-    mainClass = "com.k2.music.ChordRepositorySmokeTest"
+    mainClass = "com.k2.music.AdvancedMusicToolsSmokeTest"
+}
+
+tasks.register("phaseThreeCoreSmokeTest", JavaExec) {
+    dependsOn("compileChordDataSmokeTest")
+    classpath = files(
+            smokeTestClasses,
+            "$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
+    )
+    mainClass = "com.k2.music.Phase3CoreSmokeTest"
+}
+
+tasks.register("offlineCoreJvmTest") {
+    group = "verification"
+    description = "Runs all offline chord, SVG, reverse-identification, progression, practice, and AI-validation JVM suites."
+    dependsOn(
+            "phaseOneJvmTest",
+            "advancedMusicToolsSmokeTest",
+            "phaseThreeCoreSmokeTest",
+            "testDebugUnitTest"
+    )
 }
