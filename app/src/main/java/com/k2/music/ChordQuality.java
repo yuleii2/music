@@ -10,6 +10,8 @@ import java.util.List;
  */
 public final class ChordQuality {
     public final String id;
+    /** Canonical suffix used when constructing a chord symbol. */
+    public final String symbolSuffix;
     public final String displayName;
     public final String chineseName;
     public final int[] intervals;
@@ -28,6 +30,21 @@ public final class ChordQuality {
             int difficulty,
             String description
     ) {
+        this(id, "maj".equals(id) ? "" : id, displayName, chineseName, intervals,
+                intervalLabels, category, difficulty, description);
+    }
+
+    public ChordQuality(
+            String id,
+            String symbolSuffix,
+            String displayName,
+            String chineseName,
+            int[] intervals,
+            String[] intervalLabels,
+            String category,
+            int difficulty,
+            String description
+    ) {
         if (id == null || id.trim().isEmpty()) {
             throw new IllegalArgumentException("ChordQuality id must not be empty.");
         }
@@ -38,6 +55,7 @@ public final class ChordQuality {
             throw new IllegalArgumentException("Interval labels must match intervals.");
         }
         this.id = id;
+        this.symbolSuffix = symbolSuffix == null ? "" : symbolSuffix;
         this.displayName = displayName;
         this.chineseName = chineseName;
         this.intervals = Arrays.copyOf(intervals, intervals.length);

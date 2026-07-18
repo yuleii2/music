@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,7 +35,7 @@ import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +50,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -160,7 +161,7 @@ fun ChordDetailScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("chord_detail_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("和弦详情") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -258,7 +259,7 @@ fun ChordDetailScreen(
             title = { Text("删除自定义指法？") },
             text = { Text("只会删除你保存的这条指法；内置指法和和弦数据不会改变。") },
             confirmButton = {
-                Button(onClick = { confirmDelete = false; onDeleteCustomVoicing() }) { Text("删除") }
+                StudioButton(onClick = { confirmDelete = false; onDeleteCustomVoicing() }) { Text("删除") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("取消") }
@@ -304,7 +305,11 @@ private fun DetailContent(
                     )
                     Text(chord.chineseName, style = MaterialTheme.typography.titleLarge)
                     if (chord.bassNote.isNotBlank()) {
-                        Text("低音：${chord.bassNote}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "和弦主体：${chord.chordBodySymbol} · 最低音：${chord.bassNote}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(chord.slashTypeLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -314,8 +319,9 @@ private fun DetailContent(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item("root") { SummaryPill("根音", chord.root) }
                 item("notes") { SummaryPill("组成音", chord.notes.joinToString(" · ")) }
-                if (capabilities.showTechnicalLabels) {
-                    item("intervals") { SummaryPill("音程", chord.intervals.joinToString(" · ")) }
+                item("intervals") { SummaryPill("音程", chord.intervals.joinToString(" · ")) }
+                if (chord.bassNote.isNotBlank()) {
+                    item("bass") { SummaryPill("指定低音", chord.bassNote) }
                 }
             }
         }
@@ -332,9 +338,13 @@ private fun DetailContent(
                 }
             }
             item("selector") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    modifier = Modifier.testTag("voicing_selector"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     itemsIndexed(visibleChord.voicings, key = { _, voicing -> voicing.id }) { index, voicing ->
                         FilterChip(
+                            modifier = Modifier.testTag("voicing_option_$index"),
                             selected = index == visibleSelected,
                             onClick = { visibleIndices.getOrNull(index)?.let(onSelectVoicing) },
                             label = { Text("${index + 1}. ${voicing.name}") },
@@ -364,7 +374,27 @@ private fun DetailContent(
         }
         if (state.theoryExpanded) {
             item("theory") {
-                Text(chord.description.ifBlank { "当前没有更多说明。" }, style = MaterialTheme.typography.bodyLarge)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(chord.description.ifBlank { "当前没有更多说明。" }, style = MaterialTheme.typography.bodyLarge)
+                    if (chord.aliases.isNotEmpty()) {
+                        Text("常见别名：${chord.aliases.joinToString("、")}")
+                    }
+                    if (chord.requiredIntervals.isNotEmpty()) {
+                        Text("关键音程：${chord.requiredIntervals.joinToString(" · ")}")
+                    }
+                    if (chord.omittableIntervals.isNotEmpty()) {
+                        Text("吉他指法可省略：${chord.omittableIntervals.joinToString(" · ")}（理论组成音保持不变）")
+                    }
+                    if (chord.additions.isNotEmpty()) {
+                        Text("添加音：${chord.additions.joinToString(" · ")}")
+                    }
+                    if (chord.alterations.isNotEmpty()) {
+                        Text("变化音：${chord.alterations.joinToString(" · ")}")
+                    }
+                    if (chord.bassNote.isNotBlank()) {
+                        Text("类型：${chord.slashTypeLabel}；和弦主体 ${chord.chordBodySymbol}，最低音 ${chord.bassNote}。")
+                    }
+                }
             }
         }
         item("bottom-space") { Spacer(Modifier.height(12.dp)) }
@@ -426,6 +456,13 @@ private fun VoicingInfo(voicing: VoicingUiModel, familiar: Boolean) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (voicing.omittedIntervals.isNotEmpty()) {
+            Text(
+                "吉他常用省略：${voicing.omittedIntervals.joinToString(" · ")}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (!capabilities.showTechnicalLabels) {
             val fingers = voicing.fingers.mapIndexedNotNull { index, finger ->
                 finger.takeIf { it > 0 }?.let { "${6 - index} 弦用 $it 指" }
@@ -463,28 +500,31 @@ private fun DetailActions(
     onToggleFavorite: () -> Unit,
 ) {
     val playing = playback is PlaybackUiState.Playing && playback.symbol == chord.symbol
-    Surface(shadowElevation = 8.dp) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(onClick = onPlay, modifier = Modifier.weight(1f).height(56.dp)) {
-                Icon(if (playing) Icons.Rounded.Pause else if (chord.hasVoicings) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (playing) "停止" else if (chord.hasVoicings) "试听按法" else "试听组成音")
-            }
-            Surface(
-                onClick = onToggleFavorite,
-                modifier = Modifier.size(56.dp),
-                color = if (favorite) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.medium,
+    Surface(shadowElevation = 0.dp) {
+        Column(Modifier.navigationBarsPadding()) {
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        contentDescription = if (favorite) "取消收藏，当前已收藏" else "收藏当前和弦",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+                StudioButton(onClick = onPlay, modifier = Modifier.weight(1f).height(56.dp)) {
+                    Icon(if (playing) Icons.Rounded.Pause else if (chord.hasVoicings) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (playing) "停止" else if (chord.hasVoicings) "试听按法" else "试听组成音")
+                }
+                Surface(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier.size(56.dp),
+                    color = if (favorite) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                            contentDescription = if (favorite) "取消收藏，当前已收藏" else "收藏当前和弦",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
         }

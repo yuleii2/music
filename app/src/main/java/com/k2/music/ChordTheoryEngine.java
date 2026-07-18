@@ -31,7 +31,7 @@ public final class ChordTheoryEngine {
         return buildChord(root, "", formula, Collections.emptyList());
     }
 
-    public Chord buildChord(ChordNameParser.ParseResult parsed) {
+    public Chord buildChord(ChordSymbolParser.ParseResult parsed) {
         if (parsed == null || !parsed.recognized) {
             throw new IllegalArgumentException("A recognized parsed chord is required.");
         }
@@ -61,8 +61,12 @@ public final class ChordTheoryEngine {
         if (writtenBass.isEmpty()) {
             description = symbol + " " + formula.chineseName + "：" + formula.description;
         } else {
-            description = symbol + " 表示以 " + writtenBass + " 作为低音的 "
-                    + writtenRoot + " " + formula.chineseName + "，常用于低音线连接和声部转位。";
+            description = symbol + " 表示以 " + writtenBass + " 作为最低音的 "
+                    + writtenRoot + formula.suffix + "；" + inversionDescription(
+                    writtenRoot,
+                    writtenBass,
+                    formula
+            ) + "。";
         }
         return new Chord(
                 symbol,
@@ -76,7 +80,15 @@ public final class ChordTheoryEngine {
                 buildAliases(writtenRoot, writtenBass, formula),
                 description,
                 safeShapes,
-                voicings
+                voicings,
+                formula.extensions,
+                formula.alterations,
+                Collections.emptyList(),
+                formula.additions,
+                formula.requiredIntervals,
+                formula.optionalIntervals,
+                formula.omittableIntervals,
+                formula.requiredAnyOf
         );
     }
 
@@ -85,6 +97,14 @@ public final class ChordTheoryEngine {
         Set<String> aliases = new LinkedHashSet<>();
         for (String alias : formula.aliases) {
             aliases.add(root + alias + slash);
+        }
+        if (!formula.chineseName.isEmpty()) {
+            aliases.add(root + formula.chineseName + slash);
+            aliases.add(root + formula.chineseName.replace("和弦", "") + slash);
+        }
+        if (!formula.englishName.isEmpty()) {
+            aliases.add(root + formula.englishName + slash);
+            aliases.add(root + formula.englishName.replace(" chord", "") + slash);
         }
         switch (formula.id) {
             case "maj":
@@ -124,5 +144,30 @@ public final class ChordTheoryEngine {
         }
         aliases.remove(root + formula.suffix + slash);
         return new ArrayList<>(aliases);
+    }
+
+    private String inversionDescription(String root, String bass, ChordFormula formula) {
+        List<String> tones = chordTones(root, formula);
+        int bassPitch = NoteUtils.semitone(bass);
+        int toneIndex = -1;
+        for (int index = 0; index < tones.size(); index++) {
+            if (NoteUtils.semitone(tones.get(index)) == bassPitch) {
+                toneIndex = index;
+                break;
+            }
+        }
+        if (toneIndex == 1) {
+            return "这是第一转位斜杠和弦，常用于平滑连接低音线";
+        }
+        if (toneIndex == 2) {
+            return "这是第二转位斜杠和弦，常用于平滑连接低音线";
+        }
+        if (toneIndex > 2) {
+            return "这是以和弦扩展音为低音的斜杠和弦";
+        }
+        if (toneIndex == 0) {
+            return "指定低音与根音相同，理论主体保持不变";
+        }
+        return "指定低音不属于主体和弦音，作为独立低音或踏板音使用";
     }
 }

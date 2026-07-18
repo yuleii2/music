@@ -8,9 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,9 @@ import com.k2.music.PracticePreferencesStore
 import com.k2.music.ui.MusicViewModelFactory
 import com.k2.music.ui.components.AdaptiveControlGroup
 import com.k2.music.ui.components.InlineMessage
+import com.k2.music.ui.components.StudioGroup
+import com.k2.music.ui.components.StudioListItem
+import com.k2.music.ui.components.StudioSegmentedControl
 import com.k2.music.ui.preferences.AppPreferences
 import com.k2.music.ui.preferences.ExperienceMode
 import com.k2.music.ui.preferences.capabilities
@@ -229,7 +233,11 @@ fun OnboardingScreen(
     onFinish: () -> Unit,
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().testTag("onboarding_screen"),
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .testTag("onboarding_screen"),
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -250,7 +258,7 @@ fun OnboardingScreen(
         state.error?.let { item("error") { InlineMessage(it, isError = true) } }
         item("actions") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
+                StudioButton(
                     onClick = if (state.step == 3) onFinish else onNext,
                     enabled = !state.saving,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
@@ -271,9 +279,12 @@ fun OnboardingScreen(
 @Composable
 private fun WelcomeStep() {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("吉他和弦工作室", style = MaterialTheme.typography.displaySmall)
-        Text("查询和弦、练习切换、编排进行并记录进步。", style = MaterialTheme.typography.titleLarge)
-        Text("用不到一分钟设置当前水平和每天可投入的时间，首页会据此安排今天的内容。")
+        Text("吉他和弦工作室", style = MaterialTheme.typography.headlineLarge)
+        Text("本地和弦、曲谱与练习工具。", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "用不到一分钟设置练习偏好。所有学习资料和记录默认只保存在本机。",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -281,13 +292,15 @@ private fun WelcomeStep() {
 private fun SkillStep(state: OnboardingUiState, onSkill: (SkillLevel) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("你目前处于什么阶段？", style = MaterialTheme.typography.headlineMedium)
-        SkillLevel.entries.forEach { level ->
-            Card(onClick = { onSkill(level) }, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(level.label, style = MaterialTheme.typography.titleMedium)
-                    Text(level.description)
-                    Text(if (state.skillLevel == level) "已选择" else "点按选择", style = MaterialTheme.typography.labelMedium)
-                }
+        StudioGroup {
+            SkillLevel.entries.forEachIndexed { index, level ->
+                StudioListItem(
+                    title = level.label,
+                    subtitle = level.description,
+                    meta = if (state.skillLevel == level) "已选择" else null,
+                    onClick = { onSkill(level) },
+                    showDivider = index != SkillLevel.entries.lastIndex,
+                )
             }
         }
     }
@@ -318,15 +331,11 @@ private fun TimeAndModeStep(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("每天愿意练多久？", style = MaterialTheme.typography.headlineMedium)
-        AdaptiveControlGroup {
-            listOf(3, 5, 10, 15).forEach { minutes ->
-                FilterChip(
-                    selected = state.dailyMinutes == minutes,
-                    onClick = { onDailyMinutes(minutes) },
-                    label = { Text("$minutes 分钟") },
-                )
-            }
-        }
+        StudioSegmentedControl(
+            options = listOf(3, 5, 10, 15).map { it to "$it 分钟" },
+            selected = state.dailyMinutes,
+            onSelected = onDailyMinutes,
+        )
         OutlinedTextField(
             value = state.dailyMinutes.toString(),
             onValueChange = { it.toIntOrNull()?.let(onDailyMinutes) },
@@ -335,17 +344,22 @@ private fun TimeAndModeStep(
             modifier = Modifier.fillMaxWidth(),
         )
         Text("界面信息密度", style = MaterialTheme.typography.titleMedium)
-        AdaptiveControlGroup {
-            FilterChip(
-                selected = state.experienceMode == ExperienceMode.BEGINNER,
-                onClick = { onExperience(ExperienceMode.BEGINNER) },
-                label = { Text("新手：先看推荐按法和下一步") },
-            )
-            FilterChip(
-                selected = state.experienceMode == ExperienceMode.PROFESSIONAL,
-                onClick = { onExperience(ExperienceMode.PROFESSIONAL) },
-                label = { Text("专业：默认展开理论和高级参数") },
-            )
-        }
+        StudioSegmentedControl(
+            options = listOf(
+                ExperienceMode.BEGINNER to "新手",
+                ExperienceMode.PROFESSIONAL to "专业",
+            ),
+            selected = state.experienceMode,
+            onSelected = onExperience,
+        )
+        Text(
+            if (state.experienceMode == ExperienceMode.BEGINNER) {
+                "优先显示推荐按法和下一步。"
+            } else {
+                "默认展开理论信息与高级参数。"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

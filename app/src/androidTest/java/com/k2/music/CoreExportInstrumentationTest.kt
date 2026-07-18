@@ -16,6 +16,9 @@ import com.k2.music.ui.learning.LearningProfileStore
 import com.k2.music.ui.preferences.AppPreferences
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import com.k2.music.song.SongProjectStore
+import com.k2.music.song.SongPracticeRunStore
+import com.k2.music.song.UserReportedDifficultyStore
 
 @RunWith(AndroidJUnit4::class)
 class CoreExportInstrumentationTest {
@@ -47,6 +50,9 @@ class CoreExportInstrumentationTest {
         val manager = FullBackupManager(
             AppPreferences(context), LearningProfileStore(context), user, custom, progressions, drafts,
             practicePreferences, sessions, attempts, AiSettingsStore(context),
+            SongProjectStore(SongProjectStore.defaultFile(context.filesDir)),
+            SongPracticeRunStore(SongPracticeRunStore.defaultFile(context.filesDir)),
+            UserReportedDifficultyStore(UserReportedDifficultyStore.defaultFile(context.filesDir)),
         )
         val file = java.io.File(context.cacheDir, "device-full-backup.zip")
         try {

@@ -10,6 +10,7 @@ public final class ChordMatch {
         EXACT,
         EXACT_INVERSION,
         OMITTED_FIFTH,
+        INCOMPLETE_EXTENSION,
         OMITTED_ROOT,
         DUPLICATED_TONES,
         EXTRA_TONES,
@@ -58,6 +59,7 @@ public final class ChordMatch {
             case EXACT: return "完全匹配";
             case EXACT_INVERSION: return "完全匹配（转位）";
             case OMITTED_FIFTH: return "省略五音";
+            case INCOMPLETE_EXTENSION: return "省略可选扩展音";
             case OMITTED_ROOT: return "省略根音";
             case DUPLICATED_TONES: return "完全匹配（包含重复音）";
             case EXTRA_TONES: return "包含额外音";

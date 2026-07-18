@@ -19,7 +19,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,7 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -122,7 +122,7 @@ fun ProgressionListScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("progression_list_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("和弦进行") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -180,7 +180,7 @@ fun ProgressionListScreen(
                         EmptyState(
                             title = "尚未保存进行",
                             message = "新建一个进行，或从本地预设开始。",
-                            action = { Button(onClick = onNew) { Text("新建进行") } },
+                            action = { StudioButton(onClick = onNew) { Text("新建进行") } },
                         )
                     }
                 } else {
@@ -233,7 +233,7 @@ fun ProgressionListScreen(
             title = { Text("删除和弦进行？") },
             text = { Text("将删除“${item.name}”。删除后仍可立即撤销。") },
             confirmButton = {
-                Button(onClick = {
+                StudioButton(onClick = {
                     onDelete(item)
                     deleteTarget = null
                 }) { Text("删除") }
@@ -301,7 +301,7 @@ private fun PresetCard(preset: ProgressionPresetUi, onUse: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(preset.symbols.joinToString("  →  "), style = MaterialTheme.typography.bodyLarge)
-            Button(onClick = onUse, modifier = Modifier.align(Alignment.End)) { Text("使用预设") }
+            StudioButton(onClick = onUse, modifier = Modifier.align(Alignment.End)) { Text("使用预设") }
         }
     }
 }
@@ -325,7 +325,7 @@ private fun RenameProgressionDialog(
             )
         },
         confirmButton = {
-            Button(onClick = { onConfirm(name) }, enabled = name.isNotBlank()) { Text("保存") }
+            StudioButton(onClick = { onConfirm(name) }, enabled = name.isNotBlank()) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )

@@ -30,23 +30,20 @@ import androidx.compose.material.icons.rounded.Piano
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -62,16 +59,27 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.k2.music.ui.CoreServices
 import com.k2.music.ui.MusicViewModelFactory
 import com.k2.music.ui.components.ChordCard
 import com.k2.music.ui.components.InlineMessage
 import com.k2.music.ui.components.LoadingSkeleton
+import com.k2.music.ui.components.StudioGroup
+import com.k2.music.ui.components.StudioListItem
+import com.k2.music.ui.components.StudioPageHeader
+import com.k2.music.ui.components.StudioSearchField
+import com.k2.music.ui.components.StudioSectionHeader
+import com.k2.music.ui.components.StudioTopAppBar
 import com.k2.music.ui.theme.LocalMusicMotion
 import com.k2.music.ui.gateway.PracticeConfigUi
 import com.k2.music.ui.learning.DailyPracticeTask
 import com.k2.music.ui.learning.DailyTaskType
+import com.k2.music.song.SongPracticeMode
+import com.k2.music.ui.song.SongHomeTask
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -82,6 +90,7 @@ fun HomeRoute(
     onNavigateToTools: () -> Unit,
     onStartPractice: (PracticeConfigUi) -> Unit,
     onAdjustPractice: (PracticeConfigUi) -> Unit,
+    onSongTask: (SongHomeTask) -> Unit,
 ) {
     val factory = remember(services) {
         MusicViewModelFactory(HomeViewModel::class) { handle ->
@@ -91,11 +100,18 @@ fun HomeRoute(
                 services.practiceGateway,
                 { services.learningProfileStore.profile.value },
                 handle,
+                services.songGateway,
             )
         }
     }
     val viewModel: HomeViewModel = viewModel(factory = factory)
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) viewModel.refresh() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(viewModel) {
         viewModel.effects.collectLatest { effect ->
             when (effect) {
@@ -109,6 +125,7 @@ fun HomeRoute(
                         viewModel.restoreRecent(effect.symbol)
                     }
                 }
+                is HomeEffect.NavigateToSongTask -> onSongTask(effect.task)
             }
         }
     }
@@ -125,6 +142,7 @@ fun HomeRoute(
         onNavigateToTools = onNavigateToTools,
         onStartPractice = onStartPractice,
         onAdjustPractice = onAdjustPractice,
+        onSongTask = viewModel::startSongTask,
     )
 }
 
@@ -142,6 +160,7 @@ fun HomeScreen(
     onNavigateToTools: () -> Unit,
     onStartPractice: (PracticeConfigUi) -> Unit,
     onAdjustPractice: (PracticeConfigUi) -> Unit,
+    onSongTask: (SongHomeTask) -> Unit,
 ) {
     val motion = LocalMusicMotion.current
     BackHandler(enabled = state.searchActive, onBack = onCloseSearch)
@@ -172,6 +191,7 @@ fun HomeScreen(
                 onNavigateToTools,
                 onStartPractice,
                 onAdjustPractice,
+                onSongTask,
             )
         }
     }
@@ -187,6 +207,7 @@ private fun HomeContent(
     onNavigateToTools: () -> Unit,
     onStartPractice: (PracticeConfigUi) -> Unit,
     onAdjustPractice: (PracticeConfigUi) -> Unit,
+    onSongTask: (SongHomeTask) -> Unit,
 ) {
     val listState = rememberLazyListState()
     LazyColumn(
@@ -196,14 +217,7 @@ private fun HomeContent(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item("header") {
-            Column {
-                Text("吉他和弦工作室", style = MaterialTheme.typography.headlineLarge)
-                Text(
-                    "查询和弦、练习切换、编排进行并记录进步。",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            StudioPageHeader("概览", "和弦、曲谱与练习都留在本机。")
         }
         state.fallbackMessage?.let { message ->
             item("fallback") { InlineMessage("正在使用安全离线数据。$message") }
@@ -212,18 +226,21 @@ private fun HomeContent(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(50.dp)
                     .clickable(onClick = onOpenSearch)
                     .testTag("home_search_launcher"),
-                color = MaterialTheme.colorScheme.surface,
-                shape = MaterialTheme.shapes.medium,
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small,
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.Search, contentDescription = null)
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.width(12.dp))
                     Text(
                         "输入 Cmaj7、Am、G/B……",
@@ -235,22 +252,46 @@ private fun HomeContent(
         val plan = state.dailyPlan
         val completedMinutes = state.practiceSummary.todaySeconds / 60
         item("today-status") {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("今日练习", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "已练 $completedMinutes / ${plan?.targetMinutes ?: 5} 分钟",
-                        style = MaterialTheme.typography.headlineMedium,
-                    )
-                    val remaining = ((plan?.targetMinutes ?: 5) - completedMinutes).coerceAtLeast(0)
-                    Text(if (remaining == 0L) "今天的目标已完成，可以轻松复习。" else "再完成 $remaining 分钟即可达到今日目标。")
-                    if (state.practiceSummary.learningStreakDays > 0) {
-                        Text("已连续学习 ${state.practiceSummary.learningStreakDays} 天", style = MaterialTheme.typography.bodyMedium)
+            StudioGroup {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("今日练习", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            "$completedMinutes / ${plan?.targetMinutes ?: 5} 分钟",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    plan?.tasks?.firstOrNull { it.config != null && it.type != DailyTaskType.CONTINUE_LAST }?.let { task ->
-                        Button(onClick = { onStartPractice(requireNotNull(task.config)) }) { Text("开始：${task.title}") }
+                    val remaining = ((plan?.targetMinutes ?: 5) - completedMinutes).coerceAtLeast(0)
+                    Text(
+                        if (remaining == 0L) "今日计划已完成，可按需要继续复习。" else "还有 $remaining 分钟计划内容。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (state.practiceSummary.learningStreakDays > 0) {
+                        Text(
+                            "连续记录 ${state.practiceSummary.learningStreakDays} 天",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    state.songTasks.firstOrNull()?.let { task ->
+                        StudioButton(onClick = { onSongTask(task) }, enabled = !state.songTaskStarting) {
+                            Text(if (state.songTaskStarting) "正在恢复…" else "继续：${task.title}")
+                        }
+                    } ?: plan?.tasks?.firstOrNull { it.config != null && it.type != DailyTaskType.CONTINUE_LAST }?.let { task ->
+                        StudioButton(onClick = { onStartPractice(requireNotNull(task.config)) }) { Text("开始：${task.title}") }
                     }
                 }
+            }
+        }
+        state.songTaskError?.let { message ->
+            item("song-task-error") { InlineMessage(message, isError = true) }
+        }
+        if (state.songTasks.isNotEmpty()) {
+            item("song-plan-title") { SectionTitle("曲谱会话", "来自本地练习记录") }
+            items(state.songTasks, key = { "song-${it.type}-${it.songId}-${it.sectionId}" }) { task ->
+                SongTaskCard(task, !state.songTaskStarting) { onSongTask(task) }
             }
         }
         plan?.tasks?.firstOrNull { it.type == DailyTaskType.CONTINUE_LAST }?.let { task ->
@@ -264,13 +305,13 @@ private fun HomeContent(
             it.type == DailyTaskType.REVIEW_STALE_CHORD || it.type == DailyTaskType.PRACTICE_PROGRESSION
         }
         if (reviewTasks.isNotEmpty()) {
-            item("review-title") { SectionTitle("今日复习", "来自学习资料与历史") }
+            item("review-title") { SectionTitle("待复习", "来自学习资料与历史") }
             items(reviewTasks, key = { "review-${it.type}" }) { task ->
                 PracticeTaskCard(task, onStartPractice, onAdjustPractice)
             }
         }
         plan?.weakestTransition?.let { task ->
-            item("weak-title") { SectionTitle("最需要复习的切换", "至少 5 次有效样本") }
+            item("weak-title") { SectionTitle("重点切换", "至少 5 次有效样本") }
             item("weak") { PracticeTaskCard(task, onStartPractice, onAdjustPractice) }
         }
         if (state.recent.isNotEmpty()) {
@@ -289,7 +330,7 @@ private fun HomeContent(
                 }
             }
         }
-        if (state.recommendations.isNotEmpty()) item("recommend-title") { SectionTitle("推荐新内容", "推荐理由可解释") }
+        if (state.recommendations.isNotEmpty()) item("recommend-title") { SectionTitle("和弦参考", "由本地资料生成") }
         if (state.recommendations.isNotEmpty()) item("recommend-list") {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(state.recommendations, key = { it.symbol }) { chord ->
@@ -302,7 +343,41 @@ private fun HomeContent(
                 }
             }
         }
-        item("tools") { TextButton(onClick = onNavigateToTools) { Text("查看全部工具") } }
+        item("tools") {
+            HomeToolRow(
+                icon = Icons.Rounded.GraphicEq,
+                title = "全部工具",
+                subtitle = "识别、移调、和弦进行与节拍器",
+                onClick = onNavigateToTools,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SongTaskCard(task: SongHomeTask, enabled: Boolean, onStart: () -> Unit) {
+    StudioGroup {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(task.title, style = MaterialTheme.typography.titleMedium)
+            Text(task.reason, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "${task.bpm} BPM · 移调 ${"%+d".format(task.transposeSemitones)} · 变调夹 ${task.capoFret} 品" +
+                    if (task.mode == SongPracticeMode.PERFORMANCE) {
+                        " · ${if (task.loopEnabled) "循环" else "不循环"} · ${if (task.showFretboard) "显示指板" else "隐藏指板"}"
+                    } else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            StudioButton(onClick = onStart, enabled = enabled) {
+                Text(
+                    when (task.mode) {
+                        SongPracticeMode.PERFORMANCE -> "继续连续演奏"
+                        SongPracticeMode.GUIDED_TRANSITION -> "开始专项切换"
+                        null -> "打开曲谱学习"
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -313,14 +388,14 @@ private fun PracticeTaskCard(
     onAdjust: (PracticeConfigUi) -> Unit,
     directLabel: String = "开始练习",
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), border = CardDefaults.outlinedCardBorder()) {
+    StudioGroup {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(task.title, style = MaterialTheme.typography.titleLarge)
+            Text(task.title, style = MaterialTheme.typography.titleMedium)
             Text(task.reason, style = MaterialTheme.typography.bodyMedium)
             task.config?.let { config ->
                 Text("${config.symbols} · ${config.bpm} BPM · ${config.durationSeconds} 秒")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onStart(config) }) { Text(directLabel) }
+                    StudioButton(onClick = { onStart(config) }) { Text(directLabel) }
                     TextButton(onClick = { onAdjust(config) }) { Text("调整设置") }
                 }
             }
@@ -343,7 +418,7 @@ private fun FullSearchScreen(
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     Scaffold(
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("搜索和弦") },
                 navigationIcon = {
                     IconButton(onClick = onCloseSearch) {
@@ -360,17 +435,14 @@ private fun FullSearchScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item("field") {
-                OutlinedTextField(
+                StudioSearchField(
                     value = state.searchQuery,
                     onValueChange = onQueryChange,
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
                         .testTag("home_search_field"),
-                    label = { Text("和弦名称或类型") },
-                    placeholder = { Text("Cmaj7、Am、G/B") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                    singleLine = true,
+                    placeholder = "和弦名称或类型，例如 Cmaj7、Am、G/B",
                     isError = state.searchError != null,
                     supportingText = state.searchError?.let { message -> { Text(message) } },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -405,34 +477,17 @@ private fun FullSearchScreen(
 
 @Composable
 private fun SectionTitle(title: String, trailing: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-        Text(trailing, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+    StudioSectionHeader(title, trailing)
 }
 
 @Composable
 private fun HomeToolRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Icon(Icons.AutoMirrored.Rounded.TrendingFlat, contentDescription = "打开$title")
-        }
+    StudioGroup {
+        StudioListItem(
+            title = title,
+            subtitle = subtitle,
+            icon = icon,
+            onClick = onClick,
+        )
     }
 }

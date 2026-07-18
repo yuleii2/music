@@ -27,6 +27,8 @@ public final class GuitarVoicingDefinition {
     public final boolean barre;
     public final String description;
     public final List<String> tags;
+    /** Formula intervals intentionally omitted to keep an advanced guitar shape playable. */
+    public final List<String> omittedIntervals;
 
     public GuitarVoicingDefinition(
             String id,
@@ -47,7 +49,8 @@ public final class GuitarVoicingDefinition {
             List<String> tags
     ) {
         this(id, chordSymbol, name, root, formulaId, bassNote, bassNote, frets, fingers, startFret,
-                visibleFretCount, difficulty, common, simplified, barre, description, tags);
+                visibleFretCount, difficulty, common, simplified, barre, description, tags,
+                Collections.emptyList());
     }
 
     public GuitarVoicingDefinition(
@@ -69,6 +72,31 @@ public final class GuitarVoicingDefinition {
             String description,
             List<String> tags
     ) {
+        this(id, chordSymbol, name, root, formulaId, bassNote, chordBassNote, frets, fingers, startFret,
+                visibleFretCount, difficulty, common, simplified, barre, description, tags,
+                Collections.emptyList());
+    }
+
+    public GuitarVoicingDefinition(
+            String id,
+            String chordSymbol,
+            String name,
+            String root,
+            String formulaId,
+            String bassNote,
+            String chordBassNote,
+            int[] frets,
+            int[] fingers,
+            int startFret,
+            int visibleFretCount,
+            int difficulty,
+            boolean common,
+            boolean simplified,
+            boolean barre,
+            String description,
+            List<String> tags,
+            List<String> omittedIntervals
+    ) {
         if (frets == null || fingers == null || frets.length != 6 || fingers.length != 6) {
             throw new IllegalArgumentException("A guitar voicing must describe exactly six strings.");
         }
@@ -89,6 +117,9 @@ public final class GuitarVoicingDefinition {
         this.barre = barre;
         this.description = text(description);
         this.tags = Collections.unmodifiableList(new ArrayList<>(tags == null ? Collections.emptyList() : tags));
+        this.omittedIntervals = Collections.unmodifiableList(new ArrayList<>(
+                omittedIntervals == null ? Collections.emptyList() : omittedIntervals
+        ));
     }
 
     public ChordShape toChordShape() {
@@ -108,7 +139,8 @@ public final class GuitarVoicingDefinition {
                 simplified,
                 barre,
                 description,
-                tags
+                tags,
+                omittedIntervals
         );
     }
 
@@ -121,6 +153,7 @@ public final class GuitarVoicingDefinition {
                 shape.root,
                 shape.qualityId,
                 shape.bassNote,
+                shape.bassNote,
                 shape.frets,
                 shape.fingers,
                 shape.baseFret,
@@ -130,7 +163,8 @@ public final class GuitarVoicingDefinition {
                 shape.isSimplified(),
                 shape.isBarre(),
                 shape.note,
-                shape.tags
+                shape.tags,
+                shape.omittedIntervals
         );
     }
 

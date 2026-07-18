@@ -10,6 +10,8 @@ import com.k2.music.VoicingRecommendationEngine
 import com.k2.music.ui.model.ChordLookupUiResult
 import com.k2.music.ui.model.ChordUiModel
 import com.k2.music.ui.model.VoicingUiModel
+import com.k2.music.ui.model.chromaticRoots
+import com.k2.music.ui.model.family
 import com.k2.music.ui.model.toUiModel
 import java.io.Closeable
 import kotlinx.coroutines.CoroutineDispatcher
@@ -27,13 +29,14 @@ import kotlinx.coroutines.withContext
 data class LibraryFilter(
     val root: String = "",
     val qualityId: String = "",
+    val familyId: String = "",
     val difficultyBucket: Int = 0,
     val openOnly: Boolean = false,
     val barreOnly: Boolean = false,
     val simplifiedOnly: Boolean = false,
 ) {
     val isActive: Boolean
-        get() = root.isNotEmpty() || qualityId.isNotEmpty() || difficultyBucket > 0 ||
+        get() = root.isNotEmpty() || qualityId.isNotEmpty() || familyId.isNotEmpty() || difficultyBucket > 0 ||
             openOnly || barreOnly || simplifiedOnly
 }
 
@@ -73,11 +76,21 @@ class DefaultChordCatalogGateway(
                 .map { it.toUiModel() }
                 .filter { chord ->
                     val voicings = chord.voicings
-                    (!filter.openOnly || voicings.any { it.isOpen }) &&
+                    (filter.familyId.isEmpty() || chord.family.id == filter.familyId) &&
+                        (!filter.openOnly || voicings.any { it.isOpen }) &&
                         (!filter.barreOnly || voicings.any { it.barre }) &&
                         (!filter.simplifiedOnly || voicings.any { it.simplified })
                 }
                 .distinctBy { it.symbol }
+                .sortedWith(
+                    compareBy<ChordUiModel> { it.family.ordinal }
+                        .thenBy {
+                            val family = it.family
+                            family.qualityIds.indexOf(it.qualityId)
+                        }
+                        .thenBy { chromaticRoots.indexOf(it.root) }
+                        .thenBy { it.bassNote.isNotBlank() },
+                )
                 .toList()
         }
 
@@ -92,9 +105,7 @@ class DefaultChordCatalogGateway(
 
     override suspend fun examples(): List<String> = withContext(dispatcher) { repository.examples().toList() }
 
-    override suspend fun roots(): List<String> = withContext(dispatcher) {
-        repository.allChords().map { it.root }.distinct()
-    }
+    override suspend fun roots(): List<String> = withContext(dispatcher) { chromaticRoots }
 
     override suspend fun qualities(): List<Pair<String, String>> = withContext(dispatcher) {
         repository.allQualities.map { it.id to it.chineseName }

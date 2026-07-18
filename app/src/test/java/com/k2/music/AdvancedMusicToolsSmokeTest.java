@@ -29,6 +29,14 @@ public final class AdvancedMusicToolsSmokeTest {
         assertTop(identifier.identifyNotes("C E G"), "C");
         assertTop(identifier.identifyNotes("G，C\nE"), "C/G");
         assertTop(identifier.identifyNotes("F# A C E"), "F#m7b5");
+        assertTop(identifier.identifyNotes("C E G Bb D"), "C9");
+        assertTop(identifier.identifyNotes("C F G Bb"), "C7sus4");
+        assertTop(identifier.identifyNotes("C E G D"), "Cadd9");
+        List<ChordMatch> incomplete = identifier.identifyNotes("C E Bb D A");
+        ChordMatch c13 = findMatch(incomplete, "C13");
+        require(c13 != null && c13.matchType == ChordMatch.MatchType.INCOMPLETE_EXTENSION,
+                "Incomplete C13 evidence should remain a ranked candidate with optional omissions explained.");
+        require(incomplete.size() > 1, "Ambiguous pitch sets should retain multiple ranked candidates.");
         ChordRepository.LookupResult flatSpelling = repository.find("Bbm7");
         require(flatSpelling.recognized && "Bbm7".equals(flatSpelling.chord.symbol),
                 "Displayed chord spelling should respect a valid flat-root user input.");
@@ -246,6 +254,15 @@ public final class AdvancedMusicToolsSmokeTest {
         require(!matches.isEmpty(), "Expected a chord candidate for " + expected);
         require(expected.equals(matches.get(0).symbol),
                 "Expected " + expected + " first but got " + matches.get(0).symbol + " (score " + matches.get(0).score + ")");
+    }
+
+    private static ChordMatch findMatch(List<ChordMatch> matches, String symbol) {
+        for (ChordMatch match : matches) {
+            if (symbol.equals(match.symbol)) {
+                return match;
+            }
+        }
+        return null;
     }
 
     private static void require(boolean condition, String message) {

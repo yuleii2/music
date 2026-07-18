@@ -172,6 +172,7 @@ public final class ChordDataLoader {
                     array(voicingRoot.get("voicings"), "voicings"),
                     formulaRepository
             );
+            ChordVoicingValidator.requireValid(formulaRepository, voicings);
             GuitarVoicingRepository voicingRepository = new GuitarVoicingRepository(formulaRepository, voicings);
             return new LoadedData(
                     formulaSchema,
@@ -213,7 +214,11 @@ public final class ChordDataLoader {
                     aliases,
                     orEmpty(string(item, "description", "summary")),
                     orEmpty(string(item, "category", "tag")),
-                    difficulty(item, 2)
+                    difficulty(item, 2),
+                    nullableStringList(item, "requiredIntervals"),
+                    nullableStringList(item, "optionalIntervals"),
+                    nullableStringList(item, "omittableIntervals"),
+                    stringGroups(item.get("requiredAnyOf"))
             ));
         }
         return formulas;
@@ -225,11 +230,11 @@ public final class ChordDataLoader {
     ) {
         List<GuitarVoicingDefinition> voicings = new ArrayList<>();
         Set<String> ids = new LinkedHashSet<>();
-        ChordNameParser parser = new ChordNameParser(formulas);
+        ChordSymbolParser parser = new ChordSymbolParser(formulas);
         for (int index = 0; index < entries.size(); index++) {
             Map<String, Object> item = object(entries.get(index), "voicings[" + index + "]");
             String symbol = requiredString(item, "chordSymbol", "symbol");
-            ChordNameParser.ParseResult parsed = parser.parse(symbol);
+            ChordSymbolParser.ParseResult parsed = parser.parse(symbol);
             if (!parsed.recognized) {
                 throw fail("Voicing " + symbol + " has an invalid chord symbol: " + parsed.error);
             }
@@ -293,7 +298,8 @@ public final class ChordDataLoader {
                     simplified,
                     barre,
                     orEmpty(string(item, "description", "note")),
-                    stringList(item.get("tags"))
+                    stringList(item.get("tags")),
+                    stringList(item.get("omittedIntervals"))
             ));
         }
         return voicings;
@@ -392,6 +398,21 @@ public final class ChordDataLoader {
             if (value != null && !String.valueOf(value).trim().isEmpty()) {
                 result.add(String.valueOf(value).trim());
             }
+        }
+        return result;
+    }
+
+    private static List<String> nullableStringList(Map<String, Object> item, String name) {
+        return item.containsKey(name) ? stringList(item.get(name)) : null;
+    }
+
+    private static List<List<String>> stringGroups(Object raw) {
+        if (raw == null) {
+            return Collections.emptyList();
+        }
+        List<List<String>> result = new ArrayList<>();
+        for (Object value : array(raw, "requiredAnyOf")) {
+            result.add(stringList(value));
         }
         return result;
     }

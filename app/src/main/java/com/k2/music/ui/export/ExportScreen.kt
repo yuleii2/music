@@ -21,7 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,7 +35,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -244,7 +244,7 @@ fun ExportScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("export_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("导出指法") },
                 navigationIcon = {
                     IconButton(onClick = { if (running) confirmLeave = true else onBack() }) {
@@ -267,7 +267,7 @@ fun ExportScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("导出文件夹", style = MaterialTheme.typography.titleMedium)
                         Text(state.folderUri.ifBlank { "尚未选择" }, style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = { launcher.launch(null) }) {
+                        StudioButton(onClick = { launcher.launch(null) }) {
                             Icon(Icons.Rounded.FolderOpen, contentDescription = null)
                             Text("选择文件夹")
                         }
@@ -316,13 +316,13 @@ fun ExportScreen(
             }
             item("action") {
                 if (running) {
-                    Button(onClick = onCancel, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                    StudioButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                         CircularProgressIndicator(Modifier.width(20.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text("取消导出")
                     }
                 } else {
-                    Button(
+                    StudioButton(
                         onClick = onStart,
                         enabled = state.itemCount > 0,
                         modifier = Modifier.fillMaxWidth().height(54.dp).testTag("start_export"),
@@ -341,7 +341,7 @@ fun ExportScreen(
             title = { Text("取消导出并离开？") },
             text = { Text("已完成的文件会保留，尚未开始的项目将取消。") },
             confirmButton = {
-                Button(onClick = {
+                StudioButton(onClick = {
                     confirmLeave = false
                     onCancel()
                     onBack()

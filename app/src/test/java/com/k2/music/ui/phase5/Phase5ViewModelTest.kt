@@ -32,8 +32,11 @@ import com.k2.music.ui.practice.PracticeElapsedClock
 import com.k2.music.ui.practice.PracticeSessionViewModel
 import com.k2.music.ui.practice.PracticeSetupViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -84,9 +87,10 @@ class Phase5ViewModelTest {
     @Test
     fun practiceSuccessAndFailureProduceDifferentTrustedCounts() = runTest(mainDispatcherRule.dispatcher) {
         val gateway = FakePracticeGateway()
+        val transport = FakeTransport()
         val viewModel = PracticeSessionViewModel(
             gateway,
-            FakeTransport(),
+            transport,
             practiceHandle(),
             MutablePracticeClock(1_000L),
         )
@@ -98,6 +102,7 @@ class Phase5ViewModelTest {
         assertEquals(1, viewModel.state.value.successCount)
         assertEquals(1, viewModel.state.value.currentStreak)
 
+        transport.advanceTo(index = 1, anchorNanos = 2_000_000_000L)
         viewModel.recordFailure()
         runCurrent()
         assertEquals(2, viewModel.state.value.completionCount)
@@ -109,6 +114,122 @@ class Phase5ViewModelTest {
         viewModel.recordSuccess()
         runCurrent()
         assertEquals(2, viewModel.state.value.completionCount)
+    }
+
+    @Test
+    fun samePlaybackStepCanOnlyBeRecordedOnceAndNextAnchorUnlocksRecording() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val gateway = FakePracticeGateway()
+            val transport = FakeTransport()
+            val viewModel = PracticeSessionViewModel(
+                gateway,
+                transport,
+                practiceHandle(),
+                MutablePracticeClock(1_000L),
+            )
+            runCurrent()
+
+            viewModel.recordSuccess()
+            runCurrent()
+            viewModel.recordFailure()
+            runCurrent()
+            assertEquals(1, gateway.currentProgress.attemptCount)
+            assertEquals(1, gateway.currentProgress.successCount)
+
+            transport.advanceTo(index = 1, anchorNanos = 2_000_000_000L)
+            viewModel.recordFailure()
+            runCurrent()
+            assertEquals(2, gateway.currentProgress.attemptCount)
+            assertEquals(1, gateway.currentProgress.failureCount)
+            viewModel.pause()
+        }
+
+    @Test
+    fun selectedSongDirectionRecordsOnlyTheRequestedTransition() = runTest(mainDispatcherRule.dispatcher) {
+        val handle = practiceHandle().apply {
+            this["songId"] = "song"
+            this["songSectionId"] = "chorus"
+            this["songFrom"] = "C"
+            this["songTo"] = "G"
+        }
+        val gateway = FakePracticeGateway()
+        val transport = FakeTransport()
+        val viewModel = PracticeSessionViewModel(gateway, transport, handle, MutablePracticeClock(1_000L))
+        runCurrent()
+
+        viewModel.recordFailure()
+        runCurrent()
+        assertEquals(0, gateway.currentProgress.attemptCount)
+        assertTrue(viewModel.state.value.error.orEmpty().contains("G → C"))
+
+        transport.advanceTo(index = 1, anchorNanos = 2_000_000_000L)
+        viewModel.recordSuccess()
+        runCurrent()
+        assertEquals(1, gateway.currentProgress.attemptCount)
+        assertEquals(1, gateway.currentProgress.successCount)
+        viewModel.pause()
+    }
+
+    @Test
+    fun finishWaitsForPendingAttemptBeforeSavingSummary() = runTest(mainDispatcherRule.dispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val gateway = FakePracticeGateway(recordGate = gate)
+        val viewModel = PracticeSessionViewModel(
+            gateway,
+            FakeTransport(),
+            practiceHandle(),
+            MutablePracticeClock(1_000L),
+        )
+        runCurrent()
+
+        viewModel.recordSuccess()
+        runCurrent()
+        viewModel.finish()
+        runCurrent()
+        assertEquals(-1, gateway.savedResultAttemptCount)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(1, gateway.savedResultAttemptCount)
+    }
+
+    @Test
+    fun resetAndAbandonLeaveNoPendingAttempts() = runTest(mainDispatcherRule.dispatcher) {
+        val resetGate = CompletableDeferred<Unit>()
+        val resetGateway = FakePracticeGateway(recordGate = resetGate)
+        val resetViewModel = PracticeSessionViewModel(
+            resetGateway,
+            FakeTransport(),
+            practiceHandle(),
+            MutablePracticeClock(1_000L),
+        )
+        runCurrent()
+        resetViewModel.recordSuccess()
+        runCurrent()
+        resetViewModel.reset()
+        resetGate.complete(Unit)
+        runCurrent()
+        assertEquals(0, resetGateway.currentProgress.attemptCount)
+        assertEquals(0, resetViewModel.state.value.completionCount)
+        resetViewModel.pause()
+
+        val abandonGate = CompletableDeferred<Unit>()
+        val abandonGateway = FakePracticeGateway(recordGate = abandonGate)
+        val abandonViewModel = PracticeSessionViewModel(
+            abandonGateway,
+            FakeTransport(),
+            practiceHandle(),
+            MutablePracticeClock(1_000L),
+        )
+        runCurrent()
+        val effect = async { abandonViewModel.effects.first() }
+        abandonViewModel.recordFailure()
+        runCurrent()
+        abandonViewModel.abandon()
+        abandonGate.complete(Unit)
+        runCurrent()
+        assertTrue(effect.await() is com.k2.music.ui.practice.PracticeSessionEffect.Abandoned)
+        assertEquals(0, abandonGateway.currentProgress.attemptCount)
     }
 
     @Test
@@ -161,8 +282,13 @@ private class MutablePracticeClock(var now: Long) : PracticeElapsedClock {
     override fun elapsedRealtimeMillis(): Long = now
 }
 
-private class FakePracticeGateway(private val prepareError: String? = null) : PracticeGateway {
+private class FakePracticeGateway(
+    private val prepareError: String? = null,
+    private val recordGate: CompletableDeferred<Unit>? = null,
+) : PracticeGateway {
     private var progress = AttemptProgressUi()
+    val currentProgress: AttemptProgressUi get() = progress
+    var savedResultAttemptCount: Int = -1
     override suspend fun home() = PracticeHomeData(PracticeSummaryUi(), PracticeConfigUi())
     override suspend fun summary() = PracticeSummaryUi()
     override suspend fun dailyPlan(
@@ -185,7 +311,9 @@ private class FakePracticeGateway(private val prepareError: String? = null) : Pr
         toVoicingId: String?,
         success: Boolean,
         confirmationOffsetMillis: Long?,
+        stepToken: String,
     ): AttemptProgressUi {
+        recordGate?.await()
         val streak = if (success) progress.currentStreak + 1 else 0
         progress = progress.copy(
             attemptCount = progress.attemptCount + 1,
@@ -202,7 +330,9 @@ private class FakePracticeGateway(private val prepareError: String? = null) : Pr
         startedAtEpochMillis: Long,
         config: PracticeConfigUi,
         actualSeconds: Int,
-    ) = PracticeResultUi(
+    ): PracticeResultUi {
+        savedResultAttemptCount = progress.attemptCount
+        return PracticeResultUi(
         "result",
         actualSeconds,
         progress.attemptCount,
@@ -217,7 +347,8 @@ private class FakePracticeGateway(private val prepareError: String? = null) : Pr
             config.bpm,
             "数据不足",
         ),
-    )
+        )
+    }
 }
 
 private class FakeTransport : ProgressionTransport {
@@ -250,6 +381,10 @@ private class FakeTransport : ProgressionTransport {
     override fun updatePlaybackMode(value: ProgressionPlaybackMode) = Unit
     override fun startMetronome(bpm: Int, timeSignature: String, accentFirstBeat: Boolean) = Unit
     override fun pauseForLifecycle() = pause()
+
+    fun advanceTo(index: Int, anchorNanos: Long) {
+        mutable.value = mutable.value.copy(stepIndex = index, stepAnchorNanos = anchorNanos)
+    }
 }
 
 private class FakeAiGateway : AiGateway {

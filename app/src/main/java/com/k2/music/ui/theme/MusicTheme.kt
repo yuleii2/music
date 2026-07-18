@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import com.k2.music.ui.preferences.AppSettings
 import com.k2.music.ui.preferences.ThemeMode
@@ -28,20 +29,28 @@ fun MusicTheme(
         ThemeMode.DARK -> true
     }
     val context = LocalContext.current
-    val colorScheme = when {
-        settings.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme ->
-            dynamicDarkColorScheme(context)
-        settings.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            dynamicLightColorScheme(context)
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+    val baseColorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val dynamicAccent = when {
+        !settings.dynamicColor || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> null
+        darkTheme -> dynamicDarkColorScheme(context)
+        else -> dynamicLightColorScheme(context)
     }
+    // Keep the restrained grouped surfaces intact; dynamic color may only replace the accent.
+    val colorScheme = dynamicAccent?.let { accent ->
+        baseColorScheme.copy(
+            primary = accent.primary,
+            onPrimary = accent.onPrimary,
+            primaryContainer = accent.primaryContainer,
+            onPrimaryContainer = accent.onPrimaryContainer,
+        )
+    } ?: baseColorScheme
     val extraColors = if (darkTheme) DarkExtraColors else LightExtraColors
     val motion = motionTokens(settings.motionLevel, systemAnimationsEnabled(context))
 
-    DisposableEffect(darkTheme) {
+    DisposableEffect(darkTheme, colorScheme.background) {
         val activity = context as? Activity
         activity?.window?.let { window ->
+            window.decorView.setBackgroundColor(colorScheme.background.toArgb())
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !darkTheme
                 isAppearanceLightNavigationBars = !darkTheme

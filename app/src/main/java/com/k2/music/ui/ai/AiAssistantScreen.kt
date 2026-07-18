@@ -19,7 +19,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,7 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -122,7 +122,7 @@ fun AiAssistantScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("ai_assistant_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("AI 助手") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -147,7 +147,7 @@ fun AiAssistantScreen(
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("AI 尚未配置", style = MaterialTheme.typography.titleLarge)
                             Text("离线功能不受影响。只有完成 HTTPS 服务、模型和密钥配置后，主动发送才会联网。")
-                            Button(onClick = onSettings) { Text("打开 AI 设置") }
+                            StudioButton(onClick = onSettings) { Text("打开 AI 设置") }
                         }
                     }
                 }
@@ -182,14 +182,14 @@ fun AiAssistantScreen(
             item("send") {
                 if (state.loading) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onCancel, modifier = Modifier.weight(1f)) {
+                        StudioButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Rounded.Cancel, contentDescription = null)
                             Text("取消请求")
                         }
                         CircularProgressIndicator(Modifier.align(Alignment.CenterVertically))
                     }
                 } else {
-                    Button(
+                    StudioButton(
                         onClick = onSend,
                         enabled = state.configured,
                         modifier = Modifier.fillMaxWidth().height(54.dp).testTag("ai_send"),
@@ -260,7 +260,7 @@ private fun AiResultCard(
             }
         }
         if (result.acceptKind != AiAcceptKind.NONE) {
-            Button(onClick = onAccept, modifier = Modifier.fillMaxWidth()) {
+            StudioButton(onClick = onAccept, modifier = Modifier.fillMaxWidth()) {
                 Text(if (result.acceptKind == AiAcceptKind.PROGRESSION) "确认并打开进行草稿" else "确认并保存练习草稿")
             }
         }

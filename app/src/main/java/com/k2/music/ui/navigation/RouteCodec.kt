@@ -8,6 +8,31 @@ const val CHORD_DETAIL_PATTERN = "chord-detail?symbol={symbol}"
 
 fun chordDetailRoute(symbol: String): String = "chord-detail?symbol=${encodeRouteValue(symbol)}"
 
+const val SONG_DETAIL_PATTERN = "song-detail?id={id}"
+const val SONG_EDITOR_PATTERN = "song-editor?id={id}"
+const val SONG_PRACTICE_PATTERN =
+    "song-practice?id={id}&sectionId={sectionId}&restoreBpm={restoreBpm}&restoreTranspose={restoreTranspose}&restoreCapo={restoreCapo}&restoreLoop={restoreLoop}&restoreFretboard={restoreFretboard}"
+
+fun songDetailRoute(id: String): String = "song-detail?id=${encodeRouteValue(id)}"
+
+fun songEditorRoute(id: String): String = "song-editor?id=${encodeRouteValue(id)}"
+
+fun songPracticeRoute(
+    id: String,
+    sectionId: String?,
+    bpm: Int? = null,
+    transposeSemitones: Int? = null,
+    capoFret: Int? = null,
+    loopEnabled: Boolean? = null,
+    showFretboard: Boolean? = null,
+): String = "song-practice?id=${encodeRouteValue(id)}" +
+    "&sectionId=${encodeRouteValue(sectionId.orEmpty())}" +
+    "&restoreBpm=${bpm ?: 0}" +
+    "&restoreTranspose=${transposeSemitones ?: 99}" +
+    "&restoreCapo=${capoFret ?: -1}" +
+    "&restoreLoop=${loopEnabled?.let { if (it) 1 else 0 } ?: -1}" +
+    "&restoreFretboard=${showFretboard?.let { if (it) 1 else 0 } ?: -1}"
+
 const val PROGRESSION_EDITOR_PATTERN = "progression-editor?id={id}&seed={seed}"
 
 fun progressionEditorRoute(seed: String): String =
@@ -17,9 +42,9 @@ fun progressionEditorByIdRoute(id: String): String =
     "progression-editor?id=${encodeRouteValue(id)}&seed="
 
 const val PRACTICE_SETUP_PATTERN =
-    "practice-setup?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}&progressionId={progressionId}&progressionRhythm={progressionRhythm}"
+    "practice-setup?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}&progressionId={progressionId}&progressionRhythm={progressionRhythm}&songId={songId}&songSectionId={songSectionId}&songFrom={songFrom}&songTo={songTo}"
 const val PRACTICE_SESSION_PATTERN =
-    "practice-session?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}&progressionId={progressionId}&progressionRhythm={progressionRhythm}"
+    "practice-session?mode={mode}&symbols={symbols}&duration={duration}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}&progressionId={progressionId}&progressionRhythm={progressionRhythm}&songId={songId}&songSectionId={songSectionId}&songFrom={songFrom}&songTo={songTo}"
 
 fun practiceSetupRoute(config: PracticeConfigUi): String = practiceRoute("practice-setup", config)
 
@@ -36,13 +61,18 @@ private fun practiceRoute(base: String, config: PracticeConfigUi): String =
         "&barre=${config.allowBarre}" +
         "&maxFret=${config.maxFret}" +
         "&progressionId=${encodeRouteValue(config.sourceProgressionId)}" +
-        "&progressionRhythm=${config.useProgressionRhythm}"
+        "&progressionRhythm=${config.useProgressionRhythm}" +
+        "&songId=${encodeRouteValue(config.songId)}" +
+        "&songSectionId=${encodeRouteValue(config.songSectionId)}" +
+        "&songFrom=${encodeRouteValue(config.songTransitionFrom)}" +
+        "&songTo=${encodeRouteValue(config.songTransitionTo)}"
 
 const val PRACTICE_RESULT_PATTERN =
     "practice-result?seconds={seconds}&attempts={attempts}&successes={successes}&failures={failures}&streak={streak}" +
         "&symbols={symbols}&previousRate={previousRate}&hardest={hardest}&suggestedBpm={suggestedBpm}&suggestion={suggestion}" +
         "&mode={mode}&goal={goal}&bpm={bpm}&signature={signature}&switch={switch}&accent={accent}&barre={barre}&maxFret={maxFret}" +
-        "&progressionId={progressionId}&progressionRhythm={progressionRhythm}"
+        "&progressionId={progressionId}&progressionRhythm={progressionRhythm}" +
+        "&songId={songId}&songSectionId={songSectionId}&songFrom={songFrom}&songTo={songTo}"
 
 fun practiceResultRoute(
     result: com.k2.music.ui.gateway.PracticeResultUi,
@@ -57,7 +87,9 @@ fun practiceResultRoute(
     "&mode=${config.mode.name}&goal=${config.durationSeconds}&bpm=${config.bpm}" +
     "&signature=${encodeRouteValue(config.timeSignature)}&switch=${config.switchMode.name}" +
     "&accent=${config.accentFirstBeat}&barre=${config.allowBarre}&maxFret=${config.maxFret}" +
-    "&progressionId=${encodeRouteValue(config.sourceProgressionId)}&progressionRhythm=${config.useProgressionRhythm}"
+    "&progressionId=${encodeRouteValue(config.sourceProgressionId)}&progressionRhythm=${config.useProgressionRhythm}" +
+    "&songId=${encodeRouteValue(config.songId)}&songSectionId=${encodeRouteValue(config.songSectionId)}" +
+    "&songFrom=${encodeRouteValue(config.songTransitionFrom)}&songTo=${encodeRouteValue(config.songTransitionTo)}"
 
 const val AI_ASSISTANT_PATTERN = "ai-assistant?mode={mode}&symbol={symbol}"
 

@@ -24,6 +24,10 @@ data class ExperienceCapabilities(
     val defaultMaxFret: Int,
     val compactInformationDensity: Boolean,
     val expandAdvancedPracticeSettings: Boolean,
+    val showSongTheoryFields: Boolean,
+    val songCapoPlanLimit: Int,
+    val songVoicingPreviewLimit: Int,
+    val expandAdvancedSongRhythmEditor: Boolean,
 )
 
 fun ExperienceMode.capabilities(): ExperienceCapabilities = when (this) {
@@ -37,6 +41,10 @@ fun ExperienceMode.capabilities(): ExperienceCapabilities = when (this) {
         defaultMaxFret = 5,
         compactInformationDensity = false,
         expandAdvancedPracticeSettings = false,
+        showSongTheoryFields = false,
+        songCapoPlanLimit = 1,
+        songVoicingPreviewLimit = 6,
+        expandAdvancedSongRhythmEditor = false,
     )
     ExperienceMode.PROFESSIONAL -> ExperienceCapabilities(
         showAdvancedTheoryByDefault = true,
@@ -48,6 +56,10 @@ fun ExperienceMode.capabilities(): ExperienceCapabilities = when (this) {
         defaultMaxFret = 24,
         compactInformationDensity = true,
         expandAdvancedPracticeSettings = true,
+        showSongTheoryFields = true,
+        songCapoPlanLimit = 3,
+        songVoicingPreviewLimit = Int.MAX_VALUE,
+        expandAdvancedSongRhythmEditor = true,
     )
 }
 

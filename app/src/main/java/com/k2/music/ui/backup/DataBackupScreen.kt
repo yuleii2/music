@@ -17,7 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -28,7 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -192,7 +192,7 @@ fun DataBackupScreen(
     Scaffold(
         modifier = Modifier.testTag("data_backup_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("数据与备份") },
                 navigationIcon = {
                     IconButton(onClick = if (state.running) onRequestLeave else onBack) {
@@ -208,15 +208,15 @@ fun DataBackupScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item("description") {
-                InlineMessage("完整备份包含收藏、历史、自定义指法、熟悉按法、进行与草稿、练习会话、切换明细、学习资料和非敏感设置；不包含 API Key、日志、缓存或设备 URI 权限。")
+                InlineMessage("完整备份包含收藏、历史、自定义指法、熟悉按法、进行与草稿、练习会话、切换明细、本地曲谱、曲谱练习与困难标记、学习资料和非敏感设置；不包含 API Key、日志、缓存或设备 URI 权限。")
             }
             item("export") {
-                Button(onClick = onCreateBackup, enabled = !state.running, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                StudioButton(onClick = onCreateBackup, enabled = !state.running, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                     Text("完整备份")
                 }
             }
             item("restore-file") {
-                Button(onClick = onChooseBackup, enabled = !state.running, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                StudioButton(onClick = onChooseBackup, enabled = !state.running, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                     Text("从备份恢复")
                 }
             }
@@ -239,6 +239,9 @@ fun DataBackupScreen(
                             AdaptiveStat("和弦进行", preview.progressionCount.toString()),
                             AdaptiveStat("练习记录", preview.practiceSessionCount.toString()),
                             AdaptiveStat("切换明细", preview.transitionAttemptCount.toString()),
+                            AdaptiveStat("本地曲谱", preview.songProjectCount.toString()),
+                            AdaptiveStat("曲谱练习", preview.songPracticeRunCount.toString()),
+                            AdaptiveStat("曲谱困难", preview.songDifficultyCount.toString()),
                             AdaptiveStat("备份版本", "schema ${preview.schemaVersion}"),
                         ),
                     )
@@ -261,7 +264,7 @@ fun DataBackupScreen(
                         }
                     }
                     item("restore") {
-                        Button(onClick = onRequestRestore, enabled = !state.running, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                        StudioButton(onClick = onRequestRestore, enabled = !state.running, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                             Text("确认恢复")
                         }
                     }
@@ -290,7 +293,7 @@ fun DataBackupScreen(
             onDismissRequest = onDismissRestore,
             title = { Text(if (state.restoreMode == RestoreMode.MERGE) "合并恢复？" else "覆盖本地数据？") },
             text = { Text(if (state.restoreMode == RestoreMode.MERGE) "相同 ID 会去重，内容冲突会保留恢复副本或本机练习记录。" else "本地非敏感数据将替换为备份内容；API Key 不会被备份覆盖。") },
-            confirmButton = { Button(onClick = onConfirmRestore) { Text("继续恢复") } },
+            confirmButton = { StudioButton(onClick = onConfirmRestore) { Text("继续恢复") } },
             dismissButton = { TextButton(onClick = onDismissRestore) { Text("取消") } },
         )
     }
@@ -299,7 +302,7 @@ fun DataBackupScreen(
             onDismissRequest = onDismissLeave,
             title = { Text("取消当前数据操作？") },
             text = { Text("已完成写入的恢复步骤会由事务快照回滚。") },
-            confirmButton = { Button(onClick = onCancel) { Text("取消操作") } },
+            confirmButton = { StudioButton(onClick = onCancel) { Text("取消操作") } },
             dismissButton = { TextButton(onClick = onDismissLeave) { Text("继续等待") } },
         )
     }

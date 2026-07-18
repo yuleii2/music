@@ -31,6 +31,10 @@ public final class ChordFormulaRepository {
             for (String alias : formula.aliases) {
                 registerAlias(alias, formula);
             }
+            registerAlias(formula.chineseName, formula);
+            registerAlias(formula.chineseName.replace("和弦", ""), formula);
+            registerAlias(formula.englishName, formula);
+            registerAlias(formula.englishName.replace(" chord", ""), formula);
             registerConventionalAliases(formula);
         }
         if (!byId.containsKey("maj")) {
@@ -71,10 +75,18 @@ public final class ChordFormulaRepository {
             return;
         }
         String trimmed = alias.trim();
-        if (!exactAliases.containsKey(trimmed)) {
-            exactAliases.put(trimmed, formula);
+        registerAliasForm(trimmed, formula);
+        String compact = trimmed.replaceAll("\\s+", "");
+        if (!compact.equals(trimmed)) {
+            registerAliasForm(compact, formula);
         }
-        String folded = trimmed.toLowerCase(Locale.US);
+    }
+
+    private void registerAliasForm(String alias, ChordFormula formula) {
+        if (!exactAliases.containsKey(alias)) {
+            exactAliases.put(alias, formula);
+        }
+        String folded = alias.toLowerCase(Locale.US);
         if (!foldedAliases.containsKey(folded)) {
             foldedAliases.put(folded, formula);
         }

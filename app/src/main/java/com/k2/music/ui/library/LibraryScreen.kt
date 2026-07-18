@@ -2,7 +2,9 @@ package com.k2.music.ui.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,7 +33,7 @@ import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,8 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedButton
+import com.k2.music.ui.components.StudioOutlinedButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,8 +72,15 @@ import com.k2.music.ui.components.EmptyState
 import com.k2.music.ui.components.ErrorState
 import com.k2.music.ui.components.FretboardCanvas
 import com.k2.music.ui.components.InlineMessage
+import com.k2.music.ui.components.StudioPageHeader
+import com.k2.music.ui.components.StudioSearchField
+import com.k2.music.ui.components.StudioSegmentedControl
 import com.k2.music.ui.gateway.LibraryFilter
+import com.k2.music.ui.model.AccidentalPreference
+import com.k2.music.ui.model.ChordFamily
 import com.k2.music.ui.model.ChordUiModel
+import com.k2.music.ui.model.displaySymbol
+import com.k2.music.ui.model.rootChoiceLabel
 import com.k2.music.ui.theme.LocalMusicMotion
 import kotlinx.coroutines.flow.collectLatest
 
@@ -120,6 +128,7 @@ fun LibraryRoute(
         onBrowse = { viewModel.setSegment(LibrarySegment.ALL) },
         onCreateCustom = onNavigateToRecognition,
         onRetry = viewModel::retry,
+        onAccidentalPreferenceChanged = viewModel::setAccidentalPreference,
     )
 }
 
@@ -141,6 +150,7 @@ fun LibraryScreen(
     onBrowse: () -> Unit,
     onCreateCustom: () -> Unit,
     onRetry: () -> Unit,
+    onAccidentalPreferenceChanged: (AccidentalPreference) -> Unit = {},
 ) {
     var showFilters by remember { mutableStateOf(false) }
     BackHandler(enabled = state.selectionMode, onBack = onClearSelection)
@@ -154,26 +164,21 @@ fun LibraryScreen(
             )
         } else {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp)) {
-                Text("和弦", style = MaterialTheme.typography.headlineLarge)
+                StudioPageHeader("和弦", "本地和弦与指法资料库。")
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                StudioSearchField(
                     value = state.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth().testTag("library_search_field"),
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                    placeholder = { Text("名称、类型、音名或别名") },
-                    singleLine = true,
+                    placeholder = "名称、类型、音名或别名",
                 )
                 Spacer(Modifier.height(10.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(LibrarySegment.entries, key = { it.name }) { segment ->
-                        FilterChip(
-                            selected = state.segment == segment,
-                            onClick = { onSegmentSelected(segment) },
-                            label = { Text(segment.label) },
-                        )
-                    }
-                }
+                StudioSegmentedControl(
+                    options = LibrarySegment.entries.map { it to it.label },
+                    selected = state.segment,
+                    onSelected = onSegmentSelected,
+                )
+                Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -187,7 +192,13 @@ fun LibraryScreen(
                     TextButton(onClick = { showFilters = true }) {
                         Icon(Icons.Rounded.FilterList, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
-                        Text(if (state.filter.isActive) "筛选（已启用）" else "筛选")
+                        Text(
+                            if (state.filter.isActive) {
+                                "筛选 · ${activeFilterLabels(state.filter, state.qualities).size}"
+                            } else {
+                                "筛选"
+                            },
+                        )
                     }
                 }
                 if (state.filter.isActive) {
@@ -231,6 +242,7 @@ fun LibraryScreen(
                         VerticalDivider()
                         LibraryDetailPane(
                             chord = focusedChord,
+                            accidentalPreference = state.accidentalPreference,
                             onOpenChord = onOpenChord,
                             onToggleFavorite = onToggleFavorite,
                             modifier = Modifier.weight(0.46f),
@@ -253,7 +265,9 @@ fun LibraryScreen(
             current = state.filter,
             roots = state.roots,
             qualities = state.qualities,
+            accidentalPreference = state.accidentalPreference,
             onDismiss = { showFilters = false },
+            onAccidentalPreferenceChanged = onAccidentalPreferenceChanged,
             onApply = {
                 onFilterApplied(it)
                 showFilters = false
@@ -302,6 +316,7 @@ private fun ChordGrid(
             val selected = chord.symbol in state.selectedSymbols
             ChordCard(
                 chord = chord,
+                displaySymbol = chord.displaySymbol(state.accidentalPreference),
                 selected = selected,
                 onClick = {
                     if (state.selectionMode) onToggleSelection(chord.symbol) else onOpenChord(chord.symbol)
@@ -310,7 +325,9 @@ private fun ChordGrid(
                 onLongClick = {
                     if (state.selectionMode) onToggleSelection(chord.symbol) else onEnterSelection(chord.symbol)
                 },
-                modifier = (if (motion.allowSpatialTransitions) Modifier.animateItem() else Modifier)
+                modifier = Modifier
+                    .testTag("library_chord_${chord.symbol}")
+                    .then(if (motion.allowSpatialTransitions) Modifier.animateItem() else Modifier)
                     .then(
                         if (!state.selectionMode && chord.symbol == focusedSymbol) {
                             Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
@@ -326,6 +343,7 @@ private fun ChordGrid(
 @Composable
 private fun LibraryDetailPane(
     chord: ChordUiModel?,
+    accidentalPreference: AccidentalPreference,
     onOpenChord: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -349,13 +367,17 @@ private fun LibraryDetailPane(
         item("header") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(chord.symbol, style = MaterialTheme.typography.headlineLarge)
+                    Text(chord.displaySymbol(accidentalPreference), style = MaterialTheme.typography.headlineLarge)
                     Text(chord.chineseName, style = MaterialTheme.typography.titleMedium)
                 }
                 IconButton(onClick = { onToggleFavorite(chord.symbol) }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         if (chord.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        contentDescription = if (chord.favorite) "取消收藏 ${chord.symbol}" else "收藏 ${chord.symbol}",
+                        contentDescription = if (chord.favorite) {
+                            "取消收藏 ${chord.displaySymbol(accidentalPreference)}"
+                        } else {
+                            "收藏 ${chord.displaySymbol(accidentalPreference)}"
+                        },
                     )
                 }
             }
@@ -407,10 +429,10 @@ private fun LibraryDetailPane(
         }
         item("actions") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onOpenChord(chord.symbol) }, modifier = Modifier.fillMaxWidth()) {
+                StudioButton(onClick = { onOpenChord(chord.symbol) }, modifier = Modifier.fillMaxWidth()) {
                     Text("打开完整详情")
                 }
-                OutlinedButton(onClick = { onToggleFavorite(chord.symbol) }, modifier = Modifier.fillMaxWidth()) {
+                StudioOutlinedButton(onClick = { onToggleFavorite(chord.symbol) }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (chord.favorite) "取消收藏" else "加入收藏")
                 }
             }
@@ -446,22 +468,22 @@ private fun LibraryEmptyState(
         query.isNotBlank() -> {
             title = "没有匹配结果"
             message = "保留了搜索词，你可以调整输入或清除筛选。"
-            action = { Button(onClick = onClearFilters) { Text("清除筛选") } }
+            action = { StudioButton(onClick = onClearFilters) { Text("清除筛选") } }
         }
         segment == LibrarySegment.FAVORITES -> {
             title = "还没有收藏"
             message = "浏览和弦并点击心形按钮，常用和弦会出现在这里。"
-            action = { Button(onClick = onBrowse) { Text("浏览和弦") } }
+            action = { StudioButton(onClick = onBrowse) { Text("浏览和弦") } }
         }
         segment == LibrarySegment.CUSTOM -> {
             title = "还没有自定义指法"
             message = "从交互指板识别和弦并保存自己的按法。"
-            action = { Button(onClick = onCreateCustom) { Text("识别并保存指法") } }
+            action = { StudioButton(onClick = onCreateCustom) { Text("识别并保存指法") } }
         }
         else -> {
             title = "这里暂时为空"
             message = "更改分段或筛选后再试。"
-            action = { Button(onClick = onClearFilters) { Text("重置") } }
+            action = { StudioButton(onClick = onClearFilters) { Text("重置") } }
         }
     }
     EmptyState(title, message, action = action)
@@ -473,37 +495,81 @@ private fun FilterSheet(
     current: LibraryFilter,
     roots: List<String>,
     qualities: List<Pair<String, String>>,
+    accidentalPreference: AccidentalPreference,
     onDismiss: () -> Unit,
+    onAccidentalPreferenceChanged: (AccidentalPreference) -> Unit,
     onApply: (LibraryFilter) -> Unit,
     onClear: () -> Unit,
 ) {
     var draft by remember(current) { mutableStateOf(current) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("筛选和弦", style = MaterialTheme.typography.headlineLarge)
+            Text("记谱", style = MaterialTheme.typography.titleMedium)
+            StudioSegmentedControl(
+                options = AccidentalPreference.entries.map { it to it.label },
+                selected = accidentalPreference,
+                onSelected = onAccidentalPreferenceChanged,
+            )
+            Text("类别", style = MaterialTheme.typography.titleMedium)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                item("all-families") {
+                    FilterChip(
+                        selected = draft.familyId.isEmpty(),
+                        onClick = { draft = draft.copy(familyId = "", qualityId = "") },
+                        label = { Text("全部") },
+                    )
+                }
+                items(ChordFamily.entries, key = { it.id }) { family ->
+                    FilterChip(
+                        selected = draft.familyId == family.id,
+                        onClick = { draft = draft.copy(familyId = family.id, qualityId = "") },
+                        label = { Text(family.label) },
+                    )
+                }
+            }
             Text("根音", style = MaterialTheme.typography.titleMedium)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 item("all") {
                     FilterChip(selected = draft.root.isEmpty(), onClick = { draft = draft.copy(root = "") }, label = { Text("全部") })
                 }
                 items(roots, key = { it }) { root ->
-                    FilterChip(selected = draft.root == root, onClick = { draft = draft.copy(root = root) }, label = { Text(root) })
+                    FilterChip(
+                        selected = draft.root == root,
+                        onClick = { draft = draft.copy(root = root) },
+                        label = { Text(rootChoiceLabel(root)) },
+                    )
                 }
             }
-            Text("类型", style = MaterialTheme.typography.titleMedium)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                item("all") {
-                    FilterChip(selected = draft.qualityId.isEmpty(), onClick = { draft = draft.copy(qualityId = "") }, label = { Text("全部") })
-                }
-                items(qualities, key = { it.first }) { quality ->
+            Text("具体类型", style = MaterialTheme.typography.titleMedium)
+            val selectedFamily = ChordFamily.fromId(draft.familyId)
+            if (selectedFamily == null) {
+                Text(
+                    "选择一个类别后可以继续细分；保持“全部”即浏览所有和弦性质。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                AdaptiveControlGroup {
                     FilterChip(
-                        selected = draft.qualityId == quality.first,
-                        onClick = { draft = draft.copy(qualityId = quality.first) },
-                        label = { Text(quality.second) },
+                        selected = draft.qualityId.isEmpty(),
+                        onClick = { draft = draft.copy(qualityId = "") },
+                        label = { Text("${selectedFamily.label}全部") },
                     )
+                    qualities.filter { selectedFamily.contains(it.first) }.forEach { quality ->
+                        FilterChip(
+                            selected = draft.qualityId == quality.first,
+                            onClick = { draft = draft.copy(qualityId = quality.first) },
+                            label = { Text(quality.second) },
+                        )
+                    }
                 }
             }
             Text("难度", style = MaterialTheme.typography.titleMedium)
@@ -522,7 +588,7 @@ private fun FilterSheet(
             FilterCheck("仅简化按法", draft.simplifiedOnly) { draft = draft.copy(simplifiedOnly = it) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(onClick = onClear, modifier = Modifier.weight(1f)) { Text("清除") }
-                Button(onClick = { onApply(draft) }, modifier = Modifier.weight(1f)) { Text("应用") }
+                StudioButton(onClick = { onApply(draft) }, modifier = Modifier.weight(1f)) { Text("应用") }
             }
         }
     }
@@ -542,7 +608,8 @@ private fun FilterCheck(label: String, checked: Boolean, onCheckedChange: (Boole
 }
 
 private fun activeFilterLabels(filter: LibraryFilter, qualities: List<Pair<String, String>>): List<String> = buildList {
-    if (filter.root.isNotEmpty()) add("根音 ${filter.root}")
+    if (filter.familyId.isNotEmpty()) add(ChordFamily.fromId(filter.familyId)?.label ?: filter.familyId)
+    if (filter.root.isNotEmpty()) add("根音 ${rootChoiceLabel(filter.root)}")
     if (filter.qualityId.isNotEmpty()) add(qualities.firstOrNull { it.first == filter.qualityId }?.second ?: filter.qualityId)
     if (filter.difficultyBucket > 0) add(listOf("", "入门", "中级", "进阶")[filter.difficultyBucket])
     if (filter.openOnly) add("开放")

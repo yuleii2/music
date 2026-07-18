@@ -15,7 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,7 +28,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -108,7 +108,7 @@ fun AiSettingsScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("ai_settings_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("AI 设置") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -183,7 +183,7 @@ fun AiSettingsScreen(
             }
             state.error?.let { item("error") { InlineMessage(it, isError = true) } }
             item("save") {
-                Button(onClick = onSave, enabled = !state.saving, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                StudioButton(onClick = onSave, enabled = !state.saving, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Icons.Rounded.Save, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(if (state.saving) "保存中…" else "保存设置")
@@ -191,13 +191,13 @@ fun AiSettingsScreen(
             }
             item("test") {
                 if (state.testing) {
-                    Button(onClick = onCancelTest, modifier = Modifier.fillMaxWidth()) {
+                    StudioButton(onClick = onCancelTest, modifier = Modifier.fillMaxWidth()) {
                         CircularProgressIndicator(Modifier.width(20.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text("取消连接测试")
                     }
                 } else {
-                    Button(onClick = onTest, enabled = settings.enabled, modifier = Modifier.fillMaxWidth()) { Text("测试连接") }
+                    StudioButton(onClick = onTest, enabled = settings.enabled, modifier = Modifier.fillMaxWidth()) { Text("测试连接") }
                 }
             }
             item("clear") {

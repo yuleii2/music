@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,7 +42,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,7 +59,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -228,7 +229,7 @@ fun ProgressionEditorScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("progression_editor_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = {
                     Column {
                         Text("进行编辑器")
@@ -287,7 +288,7 @@ fun ProgressionEditorScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 InlineMessage(state.error ?: "无法打开和弦进行。", isError = true)
-                Button(onClick = onBack) { Text("返回") }
+                StudioButton(onClick = onBack) { Text("返回") }
             }
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -418,7 +419,7 @@ fun ProgressionEditorScreen(
                     }
                 }
                 item("save") {
-                    Button(
+                    StudioButton(
                         onClick = onSave,
                         modifier = Modifier.fillMaxWidth().height(54.dp).testTag("save_progression"),
                     ) {
@@ -453,7 +454,7 @@ fun ProgressionEditorScreen(
             title = { Text("删除当前进行？") },
             text = { Text(if (progression?.saved == true) "将删除本地保存的进行。" else "将放弃当前草稿。") },
             confirmButton = {
-                Button(onClick = {
+                StudioButton(onClick = {
                     confirmDelete = false
                     onDelete()
                 }) { Text("删除") }
@@ -619,7 +620,7 @@ private fun RecommendationSettings(
                 valueRange = 1f..24f,
                 steps = 22,
             )
-            Button(onClick = onRecommend, modifier = Modifier.fillMaxWidth()) { Text("推荐整段按法") }
+            StudioButton(onClick = onRecommend, modifier = Modifier.fillMaxWidth()) { Text("推荐整段按法") }
         }
     }
 }
@@ -640,7 +641,11 @@ private fun ProgressionTransportBar(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
             if (isCurrent) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     repeat(progression.timeSignature.substringBefore('/').toIntOrNull() ?: 4) { index ->
@@ -745,7 +750,7 @@ private fun StepEditorSheet(
                         Icon(Icons.Rounded.Delete, contentDescription = null)
                         Text("删除步骤")
                     }
-                    Button(
+                    StudioButton(
                         onClick = { onSave(beats, strum, voicingId) },
                         modifier = Modifier.weight(1f),
                     ) { Text("完成") }

@@ -13,7 +13,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -24,7 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -147,7 +147,7 @@ fun MetronomeScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("metronome_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("节拍器") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -199,7 +199,7 @@ fun MetronomeScreen(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        Button(onClick = onToggle, modifier = Modifier.size(72.dp)) {
+                        StudioButton(onClick = onToggle, modifier = Modifier.size(72.dp)) {
                             Icon(
                                 if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                 contentDescription = if (isPlaying) "暂停节拍器" else "开始节拍器",

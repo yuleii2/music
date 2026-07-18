@@ -11,6 +11,9 @@ import com.k2.music.ui.gateway.PracticeSummaryUi
 import com.k2.music.ui.learning.DailyPracticePlan
 import com.k2.music.ui.learning.DailyTaskType
 import com.k2.music.ui.learning.LearningProfile
+import com.k2.music.ui.learning.LearningGoal
+import com.k2.music.ui.song.SongGateway
+import com.k2.music.ui.song.SongHomeTask
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
@@ -34,11 +37,15 @@ data class HomeUiState(
     val recommendations: List<ChordUiModel> = emptyList(),
     val practiceSummary: PracticeSummaryUi = PracticeSummaryUi(),
     val dailyPlan: DailyPracticePlan? = null,
+    val songTasks: List<SongHomeTask> = emptyList(),
+    val songTaskStarting: Boolean = false,
+    val songTaskError: String? = null,
 )
 
 sealed interface HomeEffect {
     data class NavigateToChord(val symbol: String) : HomeEffect
     data class RecentRemoved(val symbol: String) : HomeEffect
+    data class NavigateToSongTask(val task: SongHomeTask) : HomeEffect
 }
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
@@ -48,6 +55,7 @@ class HomeViewModel(
     private val practiceGateway: PracticeGateway,
     private val learningProfile: () -> LearningProfile,
     private val savedStateHandle: SavedStateHandle,
+    private val songGateway: SongGateway? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         HomeUiState(
@@ -156,6 +164,34 @@ class HomeViewModel(
         }
     }
 
+    fun refresh() = loadContent()
+
+    fun startSongTask(task: SongHomeTask) {
+        val gateway = songGateway ?: return
+        if (_state.value.songTaskStarting) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(songTaskStarting = true, songTaskError = null)
+            runCatching {
+                gateway.restorePracticeConfiguration(
+                    songId = task.songId,
+                    bpm = task.bpm,
+                    transposeSemitones = task.transposeSemitones,
+                    capoFret = task.capoFret,
+                    selectedVoicingIds = task.selectedVoicingIds,
+                    restoreVoicings = true,
+                )
+            }.onSuccess {
+                _state.value = _state.value.copy(songTaskStarting = false)
+                effectsChannel.send(HomeEffect.NavigateToSongTask(task))
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    songTaskStarting = false,
+                    songTaskError = error.message ?: "无法恢复上次曲谱练习设置。",
+                )
+            }
+        }
+    }
+
     private fun loadContent() {
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true)
@@ -165,6 +201,9 @@ class HomeViewModel(
             val allChords = catalog.allChords()
             val profile = learningProfile()
             val plan = practiceGateway.dailyPlan(profile, favorites, allChords)
+            val songTasksResult = runCatching {
+                songGateway?.homeTasks(LearningGoal.SONG_ACCOMPANIMENT in profile.goals).orEmpty()
+            }
             val recommendationSymbols = plan.tasks
                 .filter { it.type == DailyTaskType.LEARN_NEW_CHORD }
                 .mapNotNull { it.chordSymbol }
@@ -177,6 +216,8 @@ class HomeViewModel(
                 recommendations = decorate(recommendations),
                 practiceSummary = practiceSummary,
                 dailyPlan = plan,
+                songTasks = songTasksResult.getOrDefault(emptyList()),
+                songTaskError = songTasksResult.exceptionOrNull()?.message,
             )
         }
     }

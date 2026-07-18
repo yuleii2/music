@@ -2,6 +2,8 @@ package com.k2.music.ui.gateway
 
 import com.k2.music.PracticePreferences
 import com.k2.music.PracticePreferencesStore
+import com.k2.music.LastPracticeConfig
+import com.k2.music.LastPracticeConfigStore
 import com.k2.music.PracticeRecordStore
 import com.k2.music.PracticeSession
 import com.k2.music.PracticeSummary
@@ -15,11 +17,15 @@ import com.k2.music.ui.learning.DailyPracticePlanner
 import com.k2.music.ui.learning.DefaultDailyPracticePlanner
 import com.k2.music.ui.learning.LearningProfile
 import java.util.UUID
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.TimeZone
+import com.k2.music.ui.song.SongGateway
+import com.k2.music.song.SongPracticeMode
+import com.k2.music.song.SongTransition
 
 enum class PracticeModeUi(val label: String) {
     TWO_CHORD("双和弦"),
@@ -44,6 +50,10 @@ data class PracticeConfigUi(
     val maxFret: Int = 12,
     val sourceProgressionId: String = "",
     val useProgressionRhythm: Boolean = false,
+    val songId: String = "",
+    val songSectionId: String = "",
+    val songTransitionFrom: String = "",
+    val songTransitionTo: String = "",
 )
 
 data class PracticeSummaryUi(
@@ -114,6 +124,7 @@ interface PracticeGateway {
         toVoicingId: String?,
         success: Boolean,
         confirmationOffsetMillis: Long?,
+        stepToken: String,
     ): AttemptProgressUi
     suspend fun discardSession(sessionId: String)
     suspend fun saveResult(
@@ -130,6 +141,8 @@ class DefaultPracticeGateway(
     private val preferenceStore: PracticePreferencesStore,
     private val practicePlanDraftStore: com.k2.music.PracticePlanDraftStore,
     private val progressionGateway: ProgressionGateway,
+    private val lastConfigStore: LastPracticeConfigStore? = null,
+    private val songGateway: SongGateway? = null,
     private val dailyPlanner: DailyPracticePlanner = DefaultDailyPracticePlanner(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : PracticeGateway {
@@ -156,6 +169,7 @@ class DefaultPracticeGateway(
     override suspend fun home(): PracticeHomeData = withContext(dispatcher) {
         val preferences = preferenceStore.load()
         val last = recordStore.list().firstOrNull()
+        val lastConfig = lastConfigStore?.load()
         val aiDraft = practicePlanDraftStore.consume()
         val quick = when {
             aiDraft != null -> PracticeConfigUi(
@@ -168,6 +182,19 @@ class DefaultPracticeGateway(
                 accentFirstBeat = preferences.accentFirstBeat,
                 allowBarre = preferences.allowBarre,
                 maxFret = preferences.maxFret,
+            )
+            lastConfig != null -> PracticeConfigUi(
+                mode = lastConfig.mode.toUi(),
+                symbols = lastConfig.chordSymbols.joinToString(" "),
+                durationSeconds = lastConfig.durationSeconds,
+                bpm = lastConfig.bpm,
+                timeSignature = lastConfig.timeSignature,
+                switchMode = lastConfig.switchMode.toUi(),
+                accentFirstBeat = lastConfig.accentFirstBeat,
+                allowBarre = lastConfig.allowBarre,
+                maxFret = lastConfig.maxFret,
+                sourceProgressionId = lastConfig.sourceProgressionId,
+                useProgressionRhythm = lastConfig.useProgressionRhythm,
             )
             last != null -> PracticeConfigUi(
                 mode = last.type.toUi(),
@@ -197,6 +224,24 @@ class DefaultPracticeGateway(
     }
 
     override suspend fun prepare(config: PracticeConfigUi): ProgressionUiModel = withContext(dispatcher) {
+        if (config.songId.isNotBlank()) {
+            val songs = requireNotNull(songGateway) { "曲谱练习服务尚未初始化。" }
+            val onlyTransition = if (config.songTransitionFrom.isNotBlank() && config.songTransitionTo.isNotBlank()) {
+                SongTransition(config.songTransitionFrom, config.songTransitionTo)
+            } else {
+                null
+            }
+            val prepared = songs.preparePractice(
+                config.songId,
+                config.songSectionId.ifBlank { null },
+                onlyTransition,
+            ).progression
+            return@withContext prepared.copy(
+                bpm = config.bpm.coerceIn(40, 240),
+                timeSignature = prepared.timeSignature,
+                loop = true,
+            )
+        }
         val symbols = config.symbols.trim()
         val sourceId = config.sourceProgressionId.trim()
         val base = if (sourceId.isNotEmpty()) {
@@ -257,6 +302,22 @@ class DefaultPracticeGateway(
                 previous.familiarVoicingIds,
             ),
         )
+        val symbols = progressionGateway.createDraft(config.symbols).steps.map { it.chordSymbol }
+        lastConfigStore?.save(
+            LastPracticeConfig(
+                config.mode.toCore(),
+                symbols,
+                config.durationSeconds.coerceIn(5, 86_400),
+                config.bpm.coerceIn(40, 240),
+                TimeSignature.parse(config.timeSignature).toString(),
+                config.switchMode.toCore(),
+                config.accentFirstBeat,
+                config.allowBarre,
+                config.maxFret.coerceIn(1, 24),
+                config.sourceProgressionId,
+                config.useProgressionRhythm,
+            ),
+        )
         Unit
     }
 
@@ -273,8 +334,18 @@ class DefaultPracticeGateway(
         toVoicingId: String?,
         success: Boolean,
         confirmationOffsetMillis: Long?,
+        stepToken: String,
     ): AttemptProgressUi = withContext(dispatcher) {
-        val attempt = TransitionAttempt.create(
+        val normalizedToken = stepToken.trim()
+        require(normalizedToken.isNotEmpty() && normalizedToken.length <= 512) { "播放步骤标识无效。" }
+        val attemptId = UUID.nameUUIDFromBytes(
+            "practice-step-v1|$sessionId|$normalizedToken".toByteArray(StandardCharsets.UTF_8),
+        ).toString()
+        if (attemptStore.read(attemptId) != null) {
+            return@withContext attemptStore.forSession(sessionId).toProgress()
+        }
+        val attempt = TransitionAttempt(
+            attemptId,
             sessionId,
             System.currentTimeMillis(),
             fromChord,
@@ -287,6 +358,8 @@ class DefaultPracticeGateway(
             success,
             confirmationOffsetMillis,
             config.mode.toCore(),
+            config.songId,
+            config.songSectionId,
         )
         attemptStore.save(attempt)
         attemptStore.forSession(sessionId).toProgress()
@@ -329,6 +402,20 @@ class DefaultPracticeGateway(
             config.useProgressionRhythm,
         )
         recordStore.save(session)
+        if (config.songId.isNotBlank()) {
+            requireNotNull(songGateway) { "曲谱练习服务尚未初始化。" }.savePracticeRun(
+                songId = config.songId,
+                sectionId = config.songSectionId.ifBlank { null },
+                mode = SongPracticeMode.GUIDED_TRANSITION,
+                bpm = session.bpm,
+                startedAt = session.startedAtEpochMillis,
+                endedAt = session.endedAtEpochMillis,
+                actualDurationSeconds = session.actualDurationSeconds,
+                completed = session.actualDurationSeconds >= session.plannedDurationSeconds,
+                difficultTransitions = emptyList(),
+                runId = sessionId,
+            )
+        }
         val comparable = (listOf(session) + recordStore.list().filter {
             !it.legacy && it.id != sessionId && it.type == session.type && it.chordSymbols == symbols
         }).take(2)
@@ -450,6 +537,11 @@ class DefaultPracticeGateway(
         PracticeSession.Type.TWO_CHORD_TRANSITION -> PracticeModeUi.TWO_CHORD
         PracticeSession.Type.PROGRESSION_LOOP -> PracticeModeUi.MULTI_CHORD
         PracticeSession.Type.RANDOM_CHALLENGE -> PracticeModeUi.RANDOM
+    }
+
+    private fun PracticeSession.SwitchMode.toUi() = when (this) {
+        PracticeSession.SwitchMode.EACH_BEAT -> PracticeSwitchUi.EACH_BEAT
+        PracticeSession.SwitchMode.EACH_MEASURE -> PracticeSwitchUi.EACH_MEASURE
     }
 
     private fun PracticeModeUi.toCore() = when (this) {

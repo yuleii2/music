@@ -1,6 +1,9 @@
 package com.k2.music;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 public final class Voicing {
     public static final int MUTED = -1;
@@ -19,6 +22,7 @@ public final class Voicing {
     public final String[] stringNotes;
     public final int[] midiNotes;
     public final ChordShape sourceShape;
+    public final List<String> omittedIntervals;
 
     public Voicing(
             String name,
@@ -48,6 +52,25 @@ public final class Voicing {
             String description,
             ChordShape sourceShape
     ) {
+        this(name, frets, fingers, startFret, displayFrets, difficulty, recommended, simplified,
+                barre, description, sourceShape,
+                sourceShape == null ? Collections.emptyList() : sourceShape.omittedIntervals);
+    }
+
+    public Voicing(
+            String name,
+            int[] frets,
+            int[] fingers,
+            int startFret,
+            int displayFrets,
+            String difficulty,
+            boolean recommended,
+            boolean simplified,
+            boolean barre,
+            String description,
+            ChordShape sourceShape,
+            List<String> omittedIntervals
+    ) {
         if (frets.length != 6 || fingers.length != 6) {
             throw new IllegalArgumentException("Voicing must describe six strings.");
         }
@@ -62,6 +85,9 @@ public final class Voicing {
         this.barre = barre;
         this.description = description;
         this.sourceShape = sourceShape;
+        this.omittedIntervals = Collections.unmodifiableList(new ArrayList<>(
+                omittedIntervals == null ? Collections.emptyList() : omittedIntervals
+        ));
         this.midiNotes = buildMidiNotes(this.frets);
         this.stringNotes = buildStringNotes(this.midiNotes);
     }

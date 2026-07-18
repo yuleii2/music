@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.k2.music.ui.gateway.ChordCatalogGateway
 import com.k2.music.ui.gateway.LibraryFilter
 import com.k2.music.ui.gateway.UserLibraryGateway
+import com.k2.music.ui.model.AccidentalPreference
 import com.k2.music.ui.model.ChordUiModel
 import com.k2.music.ui.model.toUiModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,6 +33,7 @@ data class LibraryUiState(
     val segment: LibrarySegment = LibrarySegment.ALL,
     val query: String = "",
     val filter: LibraryFilter = LibraryFilter(),
+    val accidentalPreference: AccidentalPreference = AccidentalPreference.SHARPS,
     val roots: List<String> = emptyList(),
     val qualities: List<Pair<String, String>> = emptyList(),
     val chords: List<ChordUiModel> = emptyList(),
@@ -64,6 +66,10 @@ class LibraryViewModel(
 ) : ViewModel() {
     private val queryFlow = savedStateHandle.getStateFlow(KEY_QUERY, "")
     private val segmentFlow = savedStateHandle.getStateFlow(KEY_SEGMENT, LibrarySegment.ALL.name)
+    private val accidentalPreferenceFlow = savedStateHandle.getStateFlow(
+        KEY_ACCIDENTAL_PREFERENCE,
+        AccidentalPreference.SHARPS.name,
+    )
     private val filterFlow = MutableStateFlow(readFilter())
     private val refreshFlow = MutableStateFlow(0)
     private val _state = MutableStateFlow(
@@ -71,6 +77,7 @@ class LibraryViewModel(
             query = queryFlow.value,
             segment = segmentValue(segmentFlow.value),
             filter = filterFlow.value,
+            accidentalPreference = accidentalPreferenceValue(accidentalPreferenceFlow.value),
         ),
     )
     private val effectsChannel = Channel<LibraryEffect>(Channel.BUFFERED)
@@ -128,6 +135,7 @@ class LibraryViewModel(
     fun setFilter(filter: LibraryFilter) {
         savedStateHandle[KEY_ROOT] = filter.root
         savedStateHandle[KEY_QUALITY] = filter.qualityId
+        savedStateHandle[KEY_FAMILY] = filter.familyId
         savedStateHandle[KEY_DIFFICULTY] = filter.difficultyBucket
         savedStateHandle[KEY_OPEN] = filter.openOnly
         savedStateHandle[KEY_BARRE] = filter.barreOnly
@@ -137,6 +145,11 @@ class LibraryViewModel(
     }
 
     fun clearFilters() = setFilter(LibraryFilter())
+
+    fun setAccidentalPreference(value: AccidentalPreference) {
+        savedStateHandle[KEY_ACCIDENTAL_PREFERENCE] = value.name
+        _state.value = _state.value.copy(accidentalPreference = value)
+    }
 
     fun toggleFavorite(symbol: String) {
         viewModelScope.launch {
@@ -246,6 +259,7 @@ class LibraryViewModel(
     private fun readFilter() = LibraryFilter(
         root = savedStateHandle[KEY_ROOT] ?: "",
         qualityId = savedStateHandle[KEY_QUALITY] ?: "",
+        familyId = savedStateHandle[KEY_FAMILY] ?: "",
         difficultyBucket = savedStateHandle[KEY_DIFFICULTY] ?: 0,
         openOnly = savedStateHandle[KEY_OPEN] ?: false,
         barreOnly = savedStateHandle[KEY_BARRE] ?: false,
@@ -255,14 +269,19 @@ class LibraryViewModel(
     private fun segmentValue(raw: String): LibrarySegment =
         LibrarySegment.entries.firstOrNull { it.name == raw } ?: LibrarySegment.ALL
 
+    private fun accidentalPreferenceValue(raw: String): AccidentalPreference =
+        AccidentalPreference.entries.firstOrNull { it.name == raw } ?: AccidentalPreference.SHARPS
+
     private companion object {
         const val KEY_QUERY = "library_query"
         const val KEY_SEGMENT = "library_segment"
         const val KEY_ROOT = "library_filter_root"
         const val KEY_QUALITY = "library_filter_quality"
+        const val KEY_FAMILY = "library_filter_family"
         const val KEY_DIFFICULTY = "library_filter_difficulty"
         const val KEY_OPEN = "library_filter_open"
         const val KEY_BARRE = "library_filter_barre"
         const val KEY_SIMPLIFIED = "library_filter_simplified"
+        const val KEY_ACCIDENTAL_PREFERENCE = "library_accidental_preference"
     }
 }

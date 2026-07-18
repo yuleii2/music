@@ -1,6 +1,7 @@
 package com.k2.music.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,8 +17,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +41,7 @@ fun ChordCard(
     onClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     modifier: Modifier = Modifier,
+    displaySymbol: String = chord.symbol,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -50,12 +50,12 @@ fun ChordCard(
     } else {
         MaterialTheme.colorScheme.surface
     }
-    Card(
+    Surface(
         modifier = modifier
             .sharedChordBounds(chord.symbol, "container")
             .semantics {
                 contentDescription = buildString {
-                    append(chord.symbol)
+                    append(displaySymbol)
                     append("，")
                     append(chord.chineseName)
                     append("，组成音 ")
@@ -69,8 +69,12 @@ fun ChordCard(
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
-        colors = CardDefaults.cardColors(containerColor = container),
-        border = CardDefaults.outlinedCardBorder(),
+        color = container,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(
+            if (selected) 1.5.dp else 0.5.dp,
+            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+        ),
         shape = MaterialTheme.shapes.medium,
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -80,10 +84,10 @@ fun ChordCard(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        chord.symbol,
+                        displaySymbol,
                         modifier = Modifier.sharedChordBounds(chord.symbol, "title"),
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -107,9 +111,9 @@ fun ChordCard(
                         Icon(
                             if (chord.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             contentDescription = if (chord.favorite) {
-                                "取消收藏 ${chord.symbol}"
+                                "取消收藏 $displaySymbol"
                             } else {
-                                "收藏 ${chord.symbol}"
+                                "收藏 $displaySymbol"
                             },
                             tint = if (chord.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -131,7 +135,7 @@ fun ChordCard(
                         .sharedChordBounds(chord.symbol, "fretboard")
                         .fillMaxWidth()
                         .height(112.dp),
-                    showFingerNumbers = false,
+                    showFingerNumbers = true,
                 )
             } ?: Box(
                 modifier = Modifier.fillMaxWidth().height(112.dp),
@@ -144,8 +148,9 @@ fun ChordCard(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AdaptiveControlGroup {
                 ChordTag(chord.difficultyLabel)
+                if (chord.voicings.size > 1) ChordTag("${chord.voicings.size} 种按法")
                 chord.previewVoicing?.let { voicing ->
                     when {
                         voicing.simplified -> ChordTag("简化")

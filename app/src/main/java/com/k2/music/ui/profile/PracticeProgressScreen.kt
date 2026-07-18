@@ -16,7 +16,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,7 +74,7 @@ fun PracticeProgressRoute(services: CoreServices, onBack: () -> Unit) {
 fun PracticeProgressScreen(state: PracticeProgressUiState, onBack: () -> Unit) {
     Scaffold(
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("练习进步") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

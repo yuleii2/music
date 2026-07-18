@@ -2,6 +2,7 @@ package com.k2.music.ui.model
 
 import com.k2.music.Chord
 import com.k2.music.CustomVoicing
+import com.k2.music.NoteUtils
 import com.k2.music.Voicing
 
 data class VoicingUiModel(
@@ -19,6 +20,7 @@ data class VoicingUiModel(
     val description: String,
     val stringNotes: List<String?>,
     val midiNotes: List<Int>,
+    val omittedIntervals: List<String> = emptyList(),
 ) {
     val isCustom: Boolean get() = customId != null
     val isOpen: Boolean get() = frets.any { it == 0 }
@@ -38,10 +40,36 @@ data class ChordUiModel(
     val description: String,
     val voicings: List<VoicingUiModel>,
     val favorite: Boolean = false,
+    val displayName: String = chineseName,
+    val extensions: List<String> = emptyList(),
+    val alterations: List<String> = emptyList(),
+    val omissions: List<String> = emptyList(),
+    val additions: List<String> = emptyList(),
+    val requiredIntervals: List<String> = emptyList(),
+    val optionalIntervals: List<String> = emptyList(),
+    val omittableIntervals: List<String> = emptyList(),
+    val requiredAnyOf: List<List<String>> = emptyList(),
+    val pitchClasses: List<Int> = emptyList(),
 ) {
     val hasVoicings: Boolean get() = voicings.isNotEmpty()
     val previewVoicing: VoicingUiModel? get() = voicings.firstOrNull()
     val difficultyLabel: String get() = previewVoicing?.difficulty ?: "理论"
+    val chordBodySymbol: String get() = symbol.substringBefore('/')
+    val slashTypeLabel: String
+        get() {
+            if (bassNote.isBlank()) return "原位和弦"
+            val bassPitch = runCatching { NoteUtils.semitone(bassNote) }.getOrNull()
+            val index = notes.indexOfFirst { note ->
+                bassPitch != null && runCatching { NoteUtils.semitone(note) }.getOrNull() == bassPitch
+            }
+            return when (index) {
+                0 -> "根音低音斜杠和弦"
+                1 -> "第一转位斜杠和弦"
+                2 -> "第二转位斜杠和弦"
+                in 3..Int.MAX_VALUE -> "扩展音低音斜杠和弦"
+                else -> "独立低音斜杠和弦"
+            }
+        }
 }
 
 data class ChordLookupUiResult(
@@ -71,6 +99,16 @@ internal fun Chord.toUiModel(
         description = description,
         voicings = builtIns + custom,
         favorite = favorite,
+        displayName = displayName,
+        extensions = extensions.toList(),
+        alterations = alterations.toList(),
+        omissions = omissions.toList(),
+        additions = additions.toList(),
+        requiredIntervals = requiredIntervals.toList(),
+        optionalIntervals = optionalIntervals.toList(),
+        omittableIntervals = omittableIntervals.toList(),
+        requiredAnyOf = requiredAnyOf.map { it.toList() },
+        pitchClasses = pitchClasses.toList(),
     )
 }
 
@@ -90,6 +128,7 @@ private fun Voicing.toUiModel(id: String, customId: String? = null): VoicingUiMo
         description = description,
         stringNotes = stringNotes.toList(),
         midiNotes = midiNotes.toList(),
+        omittedIntervals = omittedIntervals.toList(),
     )
 
 fun CustomVoicing.toUiModel(symbol: String = chordSymbol): VoicingUiModel =
@@ -109,5 +148,8 @@ fun fretboardDescription(chord: ChordUiModel, voicing: VoicingUiModel): String {
         "$stringNumber 弦 $state"
     }.joinToString("；")
     val barre = if (voicing.barre) "包含横按" else "不含横按"
-    return "${chord.symbol}，${voicing.name}，起始 ${voicing.startFret} 品，$strings；$barre。"
+    val omissions = voicing.omittedIntervals.takeIf { it.isNotEmpty() }
+        ?.joinToString("、", prefix = "；省略音程 ")
+        .orEmpty()
+    return "${chord.symbol}，${voicing.name}，起始 ${voicing.startFret} 品，$strings；$barre$omissions。"
 }

@@ -322,3 +322,53 @@
 - 构建链仍提示 Gradle 9.6.1 可用以及 Gradle 10 将移除当前使用的部分兼容行为；首次 Release 还提示 AndroidX `libandroidx.graphics.path.so` 无需/无法再次 strip 并按原样打包。三者均不影响当前 APK，但应在后续构建工具升级任务中验证并清理。
 
 Phase 0–6 的全部 P0 与 P1 已实现；上述事项均为设备覆盖、性能深化或硬件复核性质的 P2，不阻塞本次前端交付。
+
+## Phase 7 交付：V1.4 学习闭环产品化
+
+### 已完成
+
+- 将练习从“完成次数”升级为逐次可信结果：每次“跟上了/没跟上”立即按稳定 ID 原子写入，失败清零当前连续次数，最佳连续次数保留；Activity 重建后按同一会话 ID 恢复，不重复计数。
+- 新增方向性切换统计和熟练度。`C → G` 与 `G → C` 独立分组，最多使用最近 20 次；至少 5 次才显示成功率、熟练度和强弱结论，并结合稳定 BPM、当前连续和最近练习时间计算 0–100 分。
+- 增加四步首次启动引导、本地学习档案、可重新设置入口，以及由档案、真实和弦资料、收藏/熟悉状态和可信历史生成的今日练习。没有足够样本时首页不显示伪造的“最薄弱切换”。
+- 重构练习首页与设置：支持直接开始、直接继续上次配置、调整配置、最近/收藏/熟悉/推荐/保存进行/手动选材、细粒度 BPM 和时长设置；“弹唱准备”保留保存进行的每步节奏，“速度挑战”只使用真实熟悉和弦。
+- 新增确定性难度建议。少于 10 次只显示数据不足；之后根据最近成功率和可比较会话给出保持、升 5 BPM 或降 5/10 BPM，不调用 AI。
+- 新手/专业模式接入全局 CompositionLocal，并真实改变和弦详情信息密度、默认指法范围、技术标签、练习 BPM/时长、横按与最高品位约束、高级设置展开状态；设置变更后当前 Compose 页面即时重组。
+- 新增完整 ZIP 备份/恢复页面与事务管理器。备份按十个 JSON 分区写入 manifest 和 SHA-256，恢复前执行数量、单项/总大小、路径、schema 与 checksum 校验，再提供预览、合并/覆盖和是否恢复设置选项；取消或异常恢复快照。API Key 不在任何分区中。
+- 新增七日成长看板、方向性强弱项、稳定速度和连续练习天数；修复工具重复入口、产品命名、上下文练习/进行/识别入口，以及 200% 字体下练习页的纵向可达性。
+
+### 数据与迁移
+
+- `PracticeRecordStore` 内部 schema 从 1/2 升至 3，文件路径保持 `practice-records-v1.bin` 兼容。schema 1 记录转为 `legacy=true`，保留可证实的历史完成数和时长但令可信尝试/成功/失败均为 0；schema 2 补齐保存进行来源字段。旧版本首次读取后通过现有原子二进制存储层写回 schema 3，并保留 `.bak` 回退文件。
+- 新增 `TransitionAttemptStore` schema 1：记录尝试 ID、会话 ID、时间、方向和弦、指法 ID、BPM、拍号、切换方式、成功/失败、可用时的确认偏移和练习模式；按尝试 ID upsert，重试或重复恢复不会新增第二份结果。
+- 新增 `LearningProfile` schema 1：引导完成标记、水平、最多两个目标、每日分钟数、偏好体验模式和创建/更新时间。
+- 完整备份 schema 1 包含界面设置、练习设置、非秘密 AI 配置（启用状态、服务名、Base URL、模型、温度和超时）、学习档案、收藏、带时间戳历史、自定义指法、熟悉指法、进行、进行草稿、练习会话和逐次尝试；明确不包含 Keystore 加密 API Key、AI 缓存或其他密钥材料。恢复非秘密 AI 配置时传入 `null` key，保留设备当前密钥。
+- 合并恢复时收藏取并集、历史按真实时间取新并限制 12 项、自定义指法/进行冲突生成导入副本、会话/尝试按稳定 ID 保留本地并去重；覆盖恢复使用已校验内容整体替换，失败则回滚恢复前快照。
+
+### 主要文件
+
+- `app/src/main/java/com/k2/music/TransitionAttempt.java`, `TransitionAttemptStore.java`
+- `app/src/main/java/com/k2/music/PracticeSession.java`, `PracticeRecordStore.java`
+- `app/src/main/java/com/k2/music/FullBackupManager.kt`, `JsonSupport.java`
+- `app/src/main/java/com/k2/music/ui/learning/`
+- `app/src/main/java/com/k2/music/ui/gateway/PracticeGateway.kt`, `PracticeAnalytics.kt`
+- `app/src/main/java/com/k2/music/ui/practice/PracticeHomeScreen.kt`, `PracticeSetupScreen.kt`, `PracticeSessionScreen.kt`, `PracticeViewModels.kt`
+- `app/src/main/java/com/k2/music/ui/home/HomeScreen.kt`, `HomeViewModel.kt`
+- `app/src/main/java/com/k2/music/ui/backup/`, `ui/profile/PracticeProgressScreen.kt`
+- `app/src/main/java/com/k2/music/ui/preferences/AppPreferences.kt`, `ui/detail/ChordDetailScreen.kt`
+- `app/src/test/java/com/k2/music/` 与 `app/src/androidTest/java/com/k2/music/` 中的 V1.4 回归测试
+
+### 阶段验证
+
+- Android 15 AVD `K2_Music_API35`（`emulator-5554`）在 100% 字体下完整 instrumentation 23/23 通过、0 failure、0 skipped，用时 2 分 39 秒。
+- 同一 AVD 设置系统 `font_scale=2.0` 后完整 instrumentation 23/23 通过、0 failure、0 skipped，用时 2 分 13 秒；随后已恢复为 1.0。
+- 最后一次源码状态上的完整 instrumentation 仍为 23/23 通过、0 failure、0 skipped，Gradle 用时 1 分 22 秒；XML 分为 Compose 前端 17、视觉状态 3、核心导出 3。
+- 设备用例覆盖引导与目标修改、首页直接继续、成功/失败/连续次数、Activity 重建不重复计数、模式即时差异、横屏、200% 字体、TalkBack 可读语义，以及使用真实 MediaStore 文档 URI 的备份预览和恢复确认。
+- 最终本地门禁 `offlineCoreJvmTest lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest` 成功：90 个 Gradle 任务，5 个可执行 Java smoke（进阶工具、和弦数据、解析/乐理、SVG、Phase 3）及 Phase 1 聚合门禁通过；JUnit XML 为 15 个 suite、44/44 通过、0 failure、0 error、0 skipped；Lint 为 0 error、2 warning。
+- 最终 Release 命令成功：130 个任务，用时 13 分 45 秒；Baseline Profile 2/2 通过，3 条 Macrobenchmark 按采集配置跳过。生成 Baseline 27,653 行、Startup 18,962 行；Debug APK 20,698,981 字节，Release APK 2,173,939 字节。
+- 物理 Android 设备未连接，因此没有把 AVD 的结果当作物理设备性能、触觉或扬声器时序门禁通过；该项保持未验证。
+
+### 风险与遗留
+
+- V1.4 核心功能不依赖 AI，且没有使用用户密钥执行在线测试。AI 在线兼容性仍取决于用户自行配置的 HTTPS 服务。
+- 当前设备覆盖为 API 35 AVD；Android 10/11、中端约 4GB RAM 物理设备、高刷新率物理设备、真实触觉与音频延迟仍需后续硬件验证。
+- 精确命令、APK 哈希、中间失败与环境限制同时记录在 V1.4 独立实施报告；上方 V1.3 的历史证据未被改写。

@@ -12,8 +12,8 @@ android {
         applicationId "com.k2.music"
         minSdk 23
         targetSdk 36
-        versionCode 5
-        versionName "1.4"
+        versionCode 7
+        versionName "1.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -41,8 +41,13 @@ android {
     }
 }
 
+def automaticBaselineProfileGeneration = providers
+        .gradleProperty("android.baselineProfile.automaticGenerationDuringBuild")
+        .map { it.toBoolean() }
+        .orElse(true)
+
 baselineProfile {
-    automaticGenerationDuringBuild true
+    automaticGenerationDuringBuild automaticBaselineProfileGeneration.get()
     mergeIntoMain true
     saveInSrc true
 }
@@ -89,6 +94,20 @@ tasks.register("copyVersionedDebugApk", Copy) {
 
 tasks.matching { it.name == "assembleDebug" }.configureEach {
     finalizedBy("copyVersionedDebugApk")
+}
+
+tasks.register("copyVersionedReleaseApk", Copy) {
+    group = "build"
+    description = "Copies the release APK to dist with a versioned file name."
+    from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
+    into(rootProject.layout.projectDirectory.dir("dist"))
+    rename {
+        "${appPackageBaseName}-v${android.defaultConfig.versionName}-release.apk"
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy("copyVersionedReleaseApk")
 }
 
 def smokeTestClasses = layout.buildDirectory.dir("smokeTestClasses")

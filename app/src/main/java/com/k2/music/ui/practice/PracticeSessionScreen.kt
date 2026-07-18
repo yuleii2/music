@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,14 +30,14 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import com.k2.music.ui.components.StudioOutlinedButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -100,6 +102,7 @@ fun PracticeSessionRoute(
             when (effect) {
                 is PracticeSessionEffect.Finished -> onFinished(effect.result, effect.config)
                 is PracticeSessionEffect.Message -> snackbarHostState.showSnackbar(effect.text)
+                PracticeSessionEffect.Abandoned -> onAbandon()
             }
         }
     }
@@ -113,7 +116,6 @@ fun PracticeSessionRoute(
         onFinish = viewModel::finish,
         onAbandon = {
             viewModel.abandon()
-            onAbandon()
         },
     )
 }
@@ -150,7 +152,12 @@ fun PracticeSessionScreen(
         ?: progression?.steps?.firstOrNull().takeIf { progression?.steps?.size.orZero() > 1 }
 
     BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().testTag("practice_session_screen").padding(18.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("practice_session_screen")
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(18.dp),
     ) {
         val useWideLayout = maxWidth >= 700.dp
         if (state.loading) {
@@ -169,7 +176,7 @@ fun PracticeSessionScreen(
                             modifier = Modifier.size(30.dp),
                         )
                     }
-                    IconButton(onClick = { confirmExit = true }) {
+                    IconButton(onClick = { confirmExit = true }, enabled = !state.operationInProgress && !state.recordingResult) {
                         Icon(Icons.Rounded.Close, contentDescription = "结束并离开练习")
                     }
                 }
@@ -199,17 +206,17 @@ fun PracticeSessionScreen(
             title = { Text("结束练习？") },
             text = { Text("可以继续练习，或结束并保存当前可见总结。") },
             confirmButton = {
-                Button(onClick = {
+                StudioButton(onClick = {
                     confirmExit = false
                     onFinish()
-                }) { Text("结束并保存") }
+                }, enabled = !state.operationInProgress && !state.recordingResult) { Text("结束并保存") }
             },
             dismissButton = {
                 Row {
                     TextButton(onClick = {
                         confirmExit = false
                         onAbandon()
-                    }) { Text("放弃") }
+                    }, enabled = !state.operationInProgress && !state.recordingResult) { Text("放弃") }
                     TextButton(onClick = { confirmExit = false }) { Text("继续") }
                 }
             },
@@ -262,6 +269,10 @@ private fun PracticeStatusPanel(
     onFinish: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val activeStepToken = playback.stepAnchorNanos
+        .takeIf { playback.stepIndex >= 0 && it > 0L }
+        ?.let { "${playback.progressionId.orEmpty()}:${playback.stepIndex}:$it" }
+    val currentStepAlreadyRecorded = activeStepToken != null && activeStepToken == state.lastRecordedStepToken
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -287,18 +298,20 @@ private fun PracticeStatusPanel(
             },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
+            StudioButton(
                 onClick = onSuccess,
-                enabled = !state.paused && !state.finishing && !state.recordingResult,
+                enabled = !state.paused && !state.operationInProgress &&
+                    !state.recordingResult && !currentStepAlreadyRecorded,
                 modifier = Modifier.weight(1f).height(68.dp).testTag("practice_success"),
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text("跟上了")
             }
-            OutlinedButton(
+            StudioOutlinedButton(
                 onClick = onFailure,
-                enabled = !state.paused && !state.finishing && !state.recordingResult,
+                enabled = !state.paused && !state.operationInProgress &&
+                    !state.recordingResult && !currentStepAlreadyRecorded,
                 modifier = Modifier.weight(1f).height(68.dp).testTag("practice_failure"),
             ) {
                 Icon(Icons.Rounded.Close, contentDescription = null)
@@ -307,14 +320,18 @@ private fun PracticeStatusPanel(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onReset, modifier = Modifier.weight(1f)) {
+            StudioOutlinedButton(
+                onClick = onReset,
+                enabled = !state.operationInProgress && !state.recordingResult,
+                modifier = Modifier.weight(1f),
+            ) {
                 Icon(Icons.Rounded.Replay, contentDescription = null)
                 Text("重置")
             }
-            Button(
+            StudioButton(
                 onClick = onFinish,
                 modifier = Modifier.weight(1f).testTag("finish_practice"),
-                enabled = !state.finishing,
+                enabled = !state.operationInProgress && !state.recordingResult,
             ) {
                 Text(if (state.finishing) "保存中…" else "完成")
             }
@@ -340,12 +357,18 @@ fun PracticeResultScreen(
     onDone: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().testTag("practice_result_screen").padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("practice_result_screen")
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("练习完成", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(24.dp))
+        Text("练习完成", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("实际时长：${seconds / 60} 分 ${seconds % 60} 秒", style = MaterialTheme.typography.titleLarge)
@@ -379,9 +402,9 @@ fun PracticeResultScreen(
             }
         }
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onAgain, modifier = Modifier.fillMaxWidth()) { Text("再练一次") }
+        StudioButton(onClick = onAgain, modifier = Modifier.fillMaxWidth()) { Text("再练一次") }
         if (suggestedBpm > 0) {
-            Button(onClick = onSuggestedAgain, modifier = Modifier.fillMaxWidth()) {
+            StudioButton(onClick = onSuggestedAgain, modifier = Modifier.fillMaxWidth()) {
                 Text("使用建议（$suggestedBpm BPM）再练一次")
             }
         }

@@ -9,6 +9,20 @@ import com.k2.music.ui.preferences.AppSettings
 import com.k2.music.ui.preferences.ExperienceMode
 import com.k2.music.ui.preferences.MotionLevel
 import com.k2.music.ui.preferences.ThemeMode
+import com.k2.music.song.SongChordEvent
+import com.k2.music.song.SongLimits
+import com.k2.music.song.SongPracticeMode
+import com.k2.music.song.SongPracticeRun
+import com.k2.music.song.SongPracticeRunStore
+import com.k2.music.song.SongProject
+import com.k2.music.song.SongProjectStore
+import com.k2.music.song.SongRow
+import com.k2.music.song.SongSection
+import com.k2.music.song.SongSectionType
+import com.k2.music.song.SongTimingState
+import com.k2.music.song.SongTransition
+import com.k2.music.song.UserReportedDifficulty
+import com.k2.music.song.UserReportedDifficultyStore
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -31,6 +45,9 @@ data class BackupPreview(
     val progressionCount: Int,
     val practiceSessionCount: Int,
     val transitionAttemptCount: Int,
+    val songProjectCount: Int,
+    val songPracticeRunCount: Int,
+    val songDifficultyCount: Int,
     val incompatible: Boolean,
 )
 
@@ -57,6 +74,9 @@ class FullBackupManager(
     private val practiceRecordStore: PracticeRecordStore,
     private val transitionAttemptStore: TransitionAttemptStore,
     private val aiSettingsStore: AiSettingsStore,
+    private val songProjectStore: SongProjectStore? = null,
+    private val songPracticeRunStore: SongPracticeRunStore? = null,
+    private val songDifficultyStore: UserReportedDifficultyStore? = null,
 ) {
     fun writeBackup(output: OutputStream, nowEpochMillis: Long = System.currentTimeMillis()): BackupPreview {
         val entries = linkedMapOf<String, ByteArray>()
@@ -70,11 +90,14 @@ class FullBackupManager(
         entries[PROGRESSION_DRAFTS] = json(progressionDraftStore.list().map(::progressionMap)).bytes()
         entries[PRACTICE_SESSIONS] = json(practiceRecordStore.list().map(::practiceSessionMap)).bytes()
         entries[TRANSITION_ATTEMPTS] = json(transitionAttemptStore.list().map(::attemptMap)).bytes()
+        entries[SONG_PROJECTS] = json(songProjectStore?.list().orEmpty().map(::songProjectMap)).bytes()
+        entries[SONG_PRACTICE_RUNS] = json(songPracticeRunStore?.list().orEmpty().map(::songPracticeRunMap)).bytes()
+        entries[SONG_DIFFICULTIES] = json(songDifficultyStore?.list().orEmpty().map(::songDifficultyMap)).bytes()
         val checksums = entries.mapValues { sha256(it.value) }
         val manifest = linkedMapOf<String, Any?>(
             "schemaVersion" to SCHEMA_VERSION,
-            "appVersionCode" to 5,
-            "appVersionName" to "1.4",
+            "appVersionCode" to 6,
+            "appVersionName" to "1.5",
             "createdAt" to nowEpochMillis,
             "sections" to entries.keys.toList(),
             "checksums" to checksums,
@@ -84,7 +107,7 @@ class FullBackupManager(
             entries.forEach { (name, bytes) -> writeEntry(zip, name, bytes) }
             zip.finish()
         }
-        return previewFrom(entries, SCHEMA_VERSION, "1.4", nowEpochMillis, false)
+        return previewFrom(entries, SCHEMA_VERSION, "1.5", nowEpochMillis, false)
     }
 
     fun preview(input: InputStream): BackupPreview {
@@ -132,6 +155,12 @@ class FullBackupManager(
         var skipped = 0
         var conflicts = 0
         val messages = mutableListOf<String>()
+        if (
+            (data.songProjects.isNotEmpty() || data.songPracticeRuns.isNotEmpty() || data.songDifficulties.isNotEmpty()) &&
+            (songProjectStore == null || songPracticeRunStore == null || songDifficultyStore == null)
+        ) {
+            throw IllegalStateException("当前环境未配置曲谱 Store，无法恢复曲谱章节。")
+        }
 
         if (mode == RestoreMode.OVERWRITE) {
             userChordStore.replaceFavorites(data.favorites)
@@ -144,6 +173,10 @@ class FullBackupManager(
             checkCancelled(isCancelled)
             practiceRecordStore.replaceAll(data.practiceSessions)
             transitionAttemptStore.replaceAll(data.transitionAttempts)
+            songProjectStore?.replaceAll(data.songProjects)
+            songPracticeRunStore?.replaceAll(data.songPracticeRuns)
+            songDifficultyStore?.replaceAll(data.songDifficulties)
+            checkCancelled(isCancelled)
             successful += data.recordCount()
         } else {
             val favorites = (userChordStore.favorites() + data.favorites).distinct()
@@ -214,6 +247,43 @@ class FullBackupManager(
                 }
             }
             transitionAttemptStore.replaceAll(attempts.values.toList())
+
+            val projectMerge = mergeSongProjects(songProjectStore?.list().orEmpty(), data.songProjects)
+            songProjectStore?.replaceAll(projectMerge.values)
+            successful += projectMerge.added
+            skipped += projectMerge.skipped
+            conflicts += projectMerge.conflicts
+
+            val runs = songPracticeRunStore?.list().orEmpty().associateBy { it.id }.toMutableMap()
+            data.songPracticeRuns.forEach { incomingValue ->
+                checkCancelled(isCancelled)
+                val incoming = incomingValue.copy(
+                    songId = projectMerge.restoredSongIds[incomingValue.songId] ?: incomingValue.songId,
+                )
+                val current = runs[incoming.id]
+                when {
+                    current == null -> { runs[incoming.id] = incoming; successful++ }
+                    current == incoming -> skipped++
+                    else -> { conflicts++; skipped++ }
+                }
+            }
+            songPracticeRunStore?.replaceAll(runs.values.toList())
+
+            val difficulties = songDifficultyStore?.list().orEmpty().associateBy { it.id }.toMutableMap()
+            data.songDifficulties.forEach { incomingValue ->
+                checkCancelled(isCancelled)
+                val incoming = incomingValue.copy(
+                    songId = projectMerge.restoredSongIds[incomingValue.songId] ?: incomingValue.songId,
+                )
+                val current = difficulties[incoming.id]
+                when {
+                    current == null -> { difficulties[incoming.id] = incoming; successful++ }
+                    current == incoming -> skipped++
+                    else -> { conflicts++; skipped++ }
+                }
+            }
+            songDifficultyStore?.replaceAll(difficulties.values.toList())
+            checkCancelled(isCancelled)
         }
 
         if (mode == RestoreMode.OVERWRITE || restoreSettingsInMerge) {
@@ -226,7 +296,9 @@ class FullBackupManager(
         } else {
             messages += "合并模式未恢复设置。"
         }
-        if (conflicts > 0) messages += "发现 $conflicts 项 ID 冲突；自定义指法/进行已保留恢复副本，练习数据保留本机版本。"
+        if (conflicts > 0) {
+            messages += "发现 $conflicts 项 ID 冲突；自定义指法、进行和曲谱保留恢复副本，练习记录与困难标记保留本机版本。"
+        }
         return RestoreReport(successful, skipped, conflicts, 0, messages)
     }
 
@@ -258,6 +330,49 @@ class FullBackupManager(
         return ProgressionMerge(values.values.toList(), added, skipped, conflicts)
     }
 
+    private fun mergeSongProjects(current: List<SongProject>, incoming: List<SongProject>): SongProjectMerge {
+        val values = current.associateBy { it.id }.toMutableMap()
+        val restoredSongIds = mutableMapOf<String, String>()
+        var added = 0
+        var skipped = 0
+        var conflicts = 0
+        incoming.forEach { project ->
+            val existing = values[project.id]
+            when {
+                existing == null -> {
+                    values[project.id] = project
+                    restoredSongIds[project.id] = project.id
+                    added++
+                }
+                existing == project -> {
+                    restoredSongIds[project.id] = project.id
+                    skipped++
+                }
+                else -> {
+                    val restoredCopy = values.values.firstOrNull { candidate ->
+                        candidate.id != project.id &&
+                            candidate.title == project.title + "（恢复副本）" &&
+                            candidate.copy(id = project.id, title = project.title) == project
+                    }
+                    if (restoredCopy != null) {
+                        restoredSongIds[project.id] = restoredCopy.id
+                        skipped++
+                    } else {
+                        val copy = project.copy(
+                            id = UUID.randomUUID().toString(),
+                            title = project.title + "（恢复副本）",
+                        )
+                        values[copy.id] = copy
+                        restoredSongIds[project.id] = copy.id
+                        added++
+                        conflicts++
+                    }
+                }
+            }
+        }
+        return SongProjectMerge(values.values.toList(), restoredSongIds, added, skipped, conflicts)
+    }
+
     private fun snapshot() = BackupSnapshot(
         appPreferences.settings.value,
         learningProfileStore.profile.value,
@@ -270,6 +385,9 @@ class FullBackupManager(
         practiceRecordStore.list(),
         transitionAttemptStore.list(),
         aiSettingsStore.load(),
+        songProjectStore?.list().orEmpty(),
+        songPracticeRunStore?.list().orEmpty(),
+        songDifficultyStore?.list().orEmpty(),
     )
 
     private fun restoreSnapshot(value: BackupSnapshot) {
@@ -284,6 +402,9 @@ class FullBackupManager(
         practiceRecordStore.replaceAll(value.practiceSessions)
         transitionAttemptStore.replaceAll(value.transitionAttempts)
         aiSettingsStore.save(value.aiSettings, null)
+        songProjectStore?.replaceAll(value.songProjects)
+        songPracticeRunStore?.replaceAll(value.songPracticeRuns)
+        songDifficultyStore?.replaceAll(value.songDifficulties)
     }
 
     private fun readArchive(input: InputStream): BackupArchive {
@@ -294,7 +415,7 @@ class FullBackupManager(
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     val name = entry.name
-                    if (name.contains('/') || name.contains('\\') || name.contains("..") || name !in EXPECTED_FILES) {
+                    if (name.contains('/') || name.contains('\\') || name.contains("..") || name.isBlank()) {
                         throw BackupFormatException("备份包含不安全或未知路径：$name")
                     }
                     if (entry.isDirectory || entries.containsKey(name)) throw BackupFormatException("备份包含重复或目录条目：$name")
@@ -314,13 +435,19 @@ class FullBackupManager(
         val manifestBytes = entries.remove(MANIFEST) ?: throw BackupFormatException("备份缺少 manifest.json。")
         val manifest = parseObject(manifestBytes.text(), MANIFEST)
         val schema = manifest.int("schemaVersion")
+        if (schema < 1) throw BackupFormatException("备份 schema 版本无效：$schema。")
         val appVersion = manifest.string("appVersionName")
         val createdAt = manifest.long("createdAt")
         val sections = manifest.list("sections").map { it as? String ?: throw BackupFormatException("manifest sections 无效。") }
-        if (sections.toSet() != REQUIRED_SECTIONS || entries.keys != sections.toSet()) {
+        if (sections.size != sections.toSet().size || entries.keys != sections.toSet()) {
             throw BackupFormatException("备份章节不完整或与 manifest 不一致。")
         }
+        val required = if (schema <= 1) V1_SECTIONS else REQUIRED_SECTIONS
+        if (!sections.toSet().containsAll(required) || (schema <= SCHEMA_VERSION && sections.toSet() != required)) {
+            throw BackupFormatException("备份 schema $schema 的章节不完整或包含未知章节。")
+        }
         val checksums = manifest.objectValue("checksums")
+        if (checksums.keys != sections.toSet()) throw BackupFormatException("manifest 校验值章节不一致。")
         entries.forEach { (name, bytes) ->
             val expected = checksums[name] as? String ?: throw BackupFormatException("缺少 $name 的校验值。")
             if (!sha256(bytes).equals(expected, ignoreCase = true)) throw BackupFormatException("$name 校验失败，备份可能已损坏。")
@@ -343,6 +470,9 @@ class FullBackupManager(
             progressionDrafts = parseList(entries.required(PROGRESSION_DRAFTS), PROGRESSION_DRAFTS).map { parseProgression(it.obj()) },
             practiceSessions = parseList(entries.required(PRACTICE_SESSIONS), PRACTICE_SESSIONS).map { parsePracticeSession(it.obj()) },
             transitionAttempts = parseList(entries.required(TRANSITION_ATTEMPTS), TRANSITION_ATTEMPTS).map { parseAttempt(it.obj()) },
+            songProjects = entries[SONG_PROJECTS]?.let { parseList(it, SONG_PROJECTS).map { raw -> parseSongProject(raw.obj()) } }.orEmpty(),
+            songPracticeRuns = entries[SONG_PRACTICE_RUNS]?.let { parseList(it, SONG_PRACTICE_RUNS).map { raw -> parseSongPracticeRun(raw.obj()) } }.orEmpty(),
+            songDifficulties = entries[SONG_DIFFICULTIES]?.let { parseList(it, SONG_DIFFICULTIES).map { raw -> parseSongDifficulty(raw.obj()) } }.orEmpty(),
         )
     }
 
@@ -499,6 +629,7 @@ class FullBackupManager(
         "toVoicingId" to value.toVoicingId, "bpm" to value.bpm, "timeSignature" to value.timeSignature,
         "switchMode" to value.switchMode.name, "success" to value.success,
         "confirmationOffsetMillis" to value.confirmationOffsetMillis, "practiceMode" to value.practiceMode.name,
+        "songId" to value.songId, "sectionId" to value.sectionId,
     )
 
     private fun parseAttempt(root: Map<String, Any?>) = TransitionAttempt(
@@ -506,6 +637,180 @@ class FullBackupManager(
         root.string("toChord"), root.string("fromVoicingId"), root.string("toVoicingId"), root.int("bpm"),
         root.string("timeSignature"), enumValue(root.string("switchMode")), root.boolean("success"),
         (root["confirmationOffsetMillis"] as? Number)?.toLong(), enumValue(root.string("practiceMode")),
+        root["songId"] as? String ?: "", root["sectionId"] as? String ?: "",
+    )
+
+    private fun songProjectMap(value: SongProject): Map<String, Any?> = linkedMapOf(
+        "schemaVersion" to value.schemaVersion,
+        "parserVersion" to value.parserVersion,
+        "id" to value.id,
+        "title" to value.title,
+        "artist" to value.artist,
+        "originalText" to value.originalText,
+        "originalKey" to value.originalKey,
+        "transposeSemitones" to value.transposeSemitones,
+        "capoFret" to value.capoFret,
+        "bpm" to value.bpm,
+        "timeSignature" to value.timeSignature,
+        "timingState" to value.timingState.name,
+        "notes" to value.notes,
+        "createdAt" to value.createdAt,
+        "updatedAt" to value.updatedAt,
+        "accidentalPreference" to value.accidentalPreference.name,
+        "sections" to value.sections.map { section ->
+            linkedMapOf<String, Any?>(
+                "id" to section.id,
+                "name" to section.name,
+                "type" to section.type.name,
+                "order" to section.order,
+                "repeatCount" to section.repeatCount,
+                "rows" to section.rows.map { row ->
+                    linkedMapOf<String, Any?>(
+                        "id" to row.id,
+                        "lyricText" to row.lyricText,
+                        "rawChordText" to row.rawChordText,
+                        "order" to row.order,
+                        "chordEvents" to row.chordEvents.map { event ->
+                            linkedMapOf<String, Any?>(
+                                "id" to event.id,
+                                "chordSymbol" to event.chordSymbol,
+                                "normalizedChordSymbol" to event.normalizedChordSymbol,
+                                "characterPosition" to event.characterPosition,
+                                "durationBeats" to event.durationBeats,
+                                "selectedVoicingId" to event.selectedVoicingId,
+                                "measureIndex" to event.measureIndex,
+                                "order" to event.order,
+                            )
+                        },
+                    )
+                },
+            )
+        },
+    )
+
+    private fun parseSongProject(root: Map<String, Any?>): SongProject {
+        val storedSchema = root.int("schemaVersion")
+        if (storedSchema !in 1..SongLimits.PROJECT_SCHEMA_VERSION) {
+            throw BackupFormatException("不支持的曲谱数据 schema：$storedSchema。")
+        }
+        return SongProject(
+            schemaVersion = SongLimits.PROJECT_SCHEMA_VERSION,
+            parserVersion = root.int("parserVersion"),
+            id = root.string("id"),
+            title = root.string("title"),
+            artist = root.string("artist"),
+            originalText = root.string("originalText"),
+            originalKey = root.string("originalKey"),
+            transposeSemitones = root.int("transposeSemitones"),
+            capoFret = root.int("capoFret"),
+            bpm = root.int("bpm"),
+            timeSignature = root.string("timeSignature"),
+            timingState = enumValue<SongTimingState>(root.string("timingState")),
+            sections = root.list("sections").map { sectionRaw ->
+                val section = sectionRaw.obj()
+                SongSection(
+                    id = section.string("id"),
+                    name = section.string("name"),
+                    type = enumValue<SongSectionType>(section.string("type")),
+                    order = section.int("order"),
+                    repeatCount = section.int("repeatCount"),
+                    rows = section.list("rows").map { rowRaw ->
+                        val row = rowRaw.obj()
+                        SongRow(
+                            id = row.string("id"),
+                            lyricText = row.string("lyricText"),
+                            rawChordText = row.string("rawChordText"),
+                            chordEvents = row.list("chordEvents").map { eventRaw ->
+                                val event = eventRaw.obj()
+                                SongChordEvent(
+                                    id = event.string("id"),
+                                    chordSymbol = event.string("chordSymbol"),
+                                    normalizedChordSymbol = event.string("normalizedChordSymbol"),
+                                    characterPosition = (event["characterPosition"] as? Number)?.toInt(),
+                                    durationBeats = (event["durationBeats"] as? Number)?.toDouble(),
+                                    selectedVoicingId = event["selectedVoicingId"] as? String,
+                                    measureIndex = (event["measureIndex"] as? Number)?.toInt(),
+                                    order = event.int("order"),
+                                )
+                            },
+                            order = row.int("order"),
+                        )
+                    },
+                )
+            },
+            notes = root.string("notes"),
+            createdAt = root.long("createdAt"),
+            updatedAt = root.long("updatedAt"),
+            accidentalPreference = (root["accidentalPreference"] as? String)?.let {
+                enumValue<MusicTheoryUtils.AccidentalPreference>(it)
+            } ?: MusicTheoryUtils.AccidentalPreference.AUTO,
+        )
+    }
+
+    private fun songPracticeRunMap(value: SongPracticeRun): Map<String, Any?> = linkedMapOf(
+        "id" to value.id,
+        "songId" to value.songId,
+        "sectionId" to value.sectionId,
+        "mode" to value.mode.name,
+        "bpm" to value.bpm,
+        "transposeSemitones" to value.transposeSemitones,
+        "capoFret" to value.capoFret,
+        "startedAt" to value.startedAt,
+        "endedAt" to value.endedAt,
+        "actualDurationSeconds" to value.actualDurationSeconds,
+        "completed" to value.completed,
+        "loopEnabled" to value.loopEnabled,
+        "showFretboard" to value.showFretboard,
+        "selectedVoicingIds" to value.selectedVoicingIds,
+        "reportedDifficultTransitions" to value.reportedDifficultTransitions.map { transition ->
+            linkedMapOf("fromChord" to transition.fromChord, "toChord" to transition.toChord)
+        },
+    )
+
+    private fun parseSongPracticeRun(root: Map<String, Any?>) = SongPracticeRun(
+        id = root.string("id"),
+        songId = root.string("songId"),
+        sectionId = root["sectionId"] as? String,
+        mode = enumValue<SongPracticeMode>(root.string("mode")),
+        bpm = root.int("bpm"),
+        transposeSemitones = root.int("transposeSemitones"),
+        capoFret = root.int("capoFret"),
+        startedAt = root.long("startedAt"),
+        endedAt = root.long("endedAt"),
+        actualDurationSeconds = root.int("actualDurationSeconds"),
+        completed = root.boolean("completed"),
+        reportedDifficultTransitions = root.list("reportedDifficultTransitions").map { raw ->
+            val transition = raw.obj()
+            SongTransition(transition.string("fromChord"), transition.string("toChord"))
+        },
+        loopEnabled = root["loopEnabled"] as? Boolean ?: true,
+        showFretboard = root["showFretboard"] as? Boolean ?: true,
+        selectedVoicingIds = (root["selectedVoicingIds"] as? Map<*, *>)?.entries?.associate { (key, value) ->
+            (key as? String ?: throw BackupFormatException("固定指法快照事件 ID 无效。")) to
+                (value as? String ?: throw BackupFormatException("固定指法快照值无效。"))
+        }.orEmpty(),
+    )
+
+    private fun songDifficultyMap(value: UserReportedDifficulty): Map<String, Any?> = linkedMapOf(
+        "id" to value.id,
+        "songId" to value.songId,
+        "sectionId" to value.sectionId,
+        "fromChord" to value.fromChord,
+        "toChord" to value.toChord,
+        "reportedAt" to value.reportedAt,
+        "resolved" to value.resolved,
+        "note" to value.note,
+    )
+
+    private fun parseSongDifficulty(root: Map<String, Any?>) = UserReportedDifficulty(
+        id = root.string("id"),
+        songId = root.string("songId"),
+        sectionId = root["sectionId"] as? String,
+        fromChord = root.string("fromChord"),
+        toChord = root.string("toChord"),
+        reportedAt = root.long("reportedAt"),
+        resolved = root.boolean("resolved"),
+        note = root.string("note"),
     )
 
     private fun previewFrom(
@@ -521,6 +826,9 @@ class FullBackupManager(
         parseList(entries.required(PROGRESSIONS), PROGRESSIONS).size,
         parseList(entries.required(PRACTICE_SESSIONS), PRACTICE_SESSIONS).size,
         parseList(entries.required(TRANSITION_ATTEMPTS), TRANSITION_ATTEMPTS).size,
+        entries[SONG_PROJECTS]?.let { parseList(it, SONG_PROJECTS).size } ?: 0,
+        entries[SONG_PRACTICE_RUNS]?.let { parseList(it, SONG_PRACTICE_RUNS).size } ?: 0,
+        entries[SONG_DIFFICULTIES]?.let { parseList(it, SONG_DIFFICULTIES).size } ?: 0,
         incompatible,
     )
 
@@ -597,9 +905,13 @@ class FullBackupManager(
         val progressionDrafts: List<ChordProgression>,
         val practiceSessions: List<PracticeSession>,
         val transitionAttempts: List<TransitionAttempt>,
+        val songProjects: List<SongProject>,
+        val songPracticeRuns: List<SongPracticeRun>,
+        val songDifficulties: List<UserReportedDifficulty>,
     ) {
         fun recordCount() = favorites.size + history.size + customVoicings.size + progressions.size +
-            progressionDrafts.size + practiceSessions.size + transitionAttempts.size
+            progressionDrafts.size + practiceSessions.size + transitionAttempts.size + songProjects.size +
+            songPracticeRuns.size + songDifficulties.size
     }
     private data class BackupSnapshot(
         val appSettings: AppSettings,
@@ -613,6 +925,9 @@ class FullBackupManager(
         val practiceSessions: List<PracticeSession>,
         val transitionAttempts: List<TransitionAttempt>,
         val aiSettings: AiSettings,
+        val songProjects: List<SongProject>,
+        val songPracticeRuns: List<SongPracticeRun>,
+        val songDifficulties: List<UserReportedDifficulty>,
     )
     private data class ProgressionMerge(
         val values: List<ChordProgression>,
@@ -620,9 +935,16 @@ class FullBackupManager(
         val skipped: Int,
         val conflicts: Int,
     )
+    private data class SongProjectMerge(
+        val values: List<SongProject>,
+        val restoredSongIds: Map<String, String>,
+        val added: Int,
+        val skipped: Int,
+        val conflicts: Int,
+    )
 
     private companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
         const val MAX_FILES = 32
         const val MAX_ENTRY_BYTES = 5 * 1024 * 1024
         const val MAX_TOTAL_BYTES = 20 * 1024 * 1024
@@ -637,10 +959,15 @@ class FullBackupManager(
         const val PROGRESSION_DRAFTS = "progression-drafts.json"
         const val PRACTICE_SESSIONS = "practice-sessions.json"
         const val TRANSITION_ATTEMPTS = "transition-attempts.json"
-        val REQUIRED_SECTIONS = setOf(
+        const val SONG_PROJECTS = "song-projects.json"
+        const val SONG_PRACTICE_RUNS = "song-practice-runs.json"
+        const val SONG_DIFFICULTIES = "song-difficulties.json"
+        val V1_SECTIONS = setOf(
             SETTINGS, LEARNING_PROFILE, FAVORITES, HISTORY, CUSTOM_VOICINGS, FAMILIAR_VOICINGS,
             PROGRESSIONS, PROGRESSION_DRAFTS, PRACTICE_SESSIONS, TRANSITION_ATTEMPTS,
         )
-        val EXPECTED_FILES = REQUIRED_SECTIONS + MANIFEST
+        val REQUIRED_SECTIONS = setOf(
+            *V1_SECTIONS.toTypedArray(), SONG_PROJECTS, SONG_PRACTICE_RUNS, SONG_DIFFICULTIES,
+        )
     }
 }

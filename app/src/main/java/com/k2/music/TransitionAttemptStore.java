@@ -15,7 +15,7 @@ import java.util.Objects;
 /** Atomic, idempotent store for directional transition attempts. */
 public final class TransitionAttemptStore {
     private static final int MAGIC = 0x4B325441; // K2TA
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     private static final int MAX_RECORDS = 1_000_000;
 
     private final File storageFile;
@@ -46,6 +46,11 @@ public final class TransitionAttemptStore {
             return byTime != 0 ? byTime : left.id.compareTo(right.id);
         });
         return Collections.unmodifiableList(result);
+    }
+
+    public synchronized TransitionAttempt read(String id) {
+        String wanted = id == null ? "" : id.trim();
+        return wanted.isEmpty() ? null : loadRecords().get(wanted);
     }
 
     public synchronized List<TransitionAttempt> forSession(String sessionId) {
@@ -105,12 +110,12 @@ public final class TransitionAttemptStore {
     private Map<String, TransitionAttempt> readFile(DataInputStream input) throws IOException {
         if (input.readInt() != MAGIC) throw new IOException("Invalid transition-attempt header.");
         int version = input.readInt();
-        if (version != SCHEMA_VERSION) throw new IOException("Unsupported transition-attempt version: " + version);
+        if (version < 1 || version > SCHEMA_VERSION) throw new IOException("Unsupported transition-attempt version: " + version);
         int count = input.readInt();
         if (count < 0 || count > MAX_RECORDS) throw new IOException("Invalid transition-attempt count: " + count);
         Map<String, TransitionAttempt> records = new LinkedHashMap<>();
         for (int index = 0; index < count; index++) {
-            TransitionAttempt attempt = readAttempt(input);
+            TransitionAttempt attempt = readAttempt(input, version);
             if (records.put(attempt.id, attempt) != null) {
                 throw new IOException("Duplicate transition-attempt id: " + attempt.id);
             }
@@ -118,7 +123,7 @@ public final class TransitionAttemptStore {
         return records;
     }
 
-    private TransitionAttempt readAttempt(DataInputStream input) throws IOException {
+    private TransitionAttempt readAttempt(DataInputStream input, int version) throws IOException {
         try {
             String id = BinaryStoreSupport.readString(input);
             String sessionId = BinaryStoreSupport.readString(input);
@@ -133,8 +138,10 @@ public final class TransitionAttemptStore {
             boolean success = input.readBoolean();
             Long offset = input.readBoolean() ? input.readLong() : null;
             PracticeSession.Type practiceMode = PracticeSession.Type.valueOf(BinaryStoreSupport.readString(input));
+            String songId = version >= 2 ? BinaryStoreSupport.readString(input) : "";
+            String sectionId = version >= 2 ? BinaryStoreSupport.readString(input) : "";
             return new TransitionAttempt(id, sessionId, timestamp, from, to, fromVoicing, toVoicing,
-                    bpm, signature, switchMode, success, offset, practiceMode);
+                    bpm, signature, switchMode, success, offset, practiceMode, songId, sectionId);
         } catch (IllegalArgumentException exception) {
             throw new IOException("Invalid transition attempt.", exception);
         }
@@ -167,6 +174,8 @@ public final class TransitionAttemptStore {
             output.writeBoolean(attempt.confirmationOffsetMillis != null);
             if (attempt.confirmationOffsetMillis != null) output.writeLong(attempt.confirmationOffsetMillis);
             BinaryStoreSupport.writeString(output, attempt.practiceMode.name());
+            BinaryStoreSupport.writeString(output, attempt.songId);
+            BinaryStoreSupport.writeString(output, attempt.sectionId);
         }
     }
 

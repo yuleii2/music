@@ -7,11 +7,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import com.k2.music.ui.gateway.LibraryFilter
@@ -19,6 +22,7 @@ import com.k2.music.ui.library.LibraryScreen
 import com.k2.music.ui.library.LibraryUiState
 import com.k2.music.ui.preferences.AppSettings
 import com.k2.music.ui.preferences.ExperienceMode
+import com.k2.music.ui.preferences.ThemeMode
 import com.k2.music.ui.theme.MusicTheme
 import com.k2.music.ui.detail.ChordDetailScreen
 import com.k2.music.ui.detail.ChordDetailUiState
@@ -110,7 +114,55 @@ class ComposeVisualStateTest {
     }
 
     @Test
-    fun experienceModeImmediatelyChangesChordDetailInformation() {
+    fun completeLibraryKeepsAdvancedChoicesInTheFocusedFilterSheet() {
+        val gateway = DefaultChordCatalogGateway(ChordRepository())
+        val chords = runBlocking { gateway.allChords() }
+        val roots = runBlocking { gateway.roots() }
+        val qualities = runBlocking { gateway.qualities() }
+        assertTrue(chords.size == 582)
+        assertTrue(chords.all { it.voicings.isNotEmpty() })
+        assertTrue(roots.size == 12)
+
+        composeRule.activity.setContent {
+            MusicTheme(AppSettings(experienceMode = ExperienceMode.PROFESSIONAL)) {
+                LibraryScreen(
+                    state = LibraryUiState(
+                        loading = false,
+                        roots = roots,
+                        qualities = qualities,
+                        chords = chords,
+                    ),
+                    onQueryChange = {},
+                    onSegmentSelected = {},
+                    onFilterApplied = {},
+                    onClearFilters = {},
+                    onOpenChord = {},
+                    onToggleFavorite = {},
+                    onEnterSelection = {},
+                    onToggleSelection = {},
+                    onClearSelection = {},
+                    onFavoriteSelection = {},
+                    onExportSelection = {},
+                    onBrowse = {},
+                    onCreateCustom = {},
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("筛选").performClick()
+        composeRule.onNodeWithText("三和弦", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText("C♯/D♭", useUnmergedTree = true).assertExists()
+        assertTrue(
+            composeRule.onAllNodesWithText("理论和弦\n暂无收录指法", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty(),
+        )
+        composeRule.onNodeWithText("应用").performClick()
+        capture("visual-complete-library.png")
+    }
+
+    @Test
+    fun coreChordFormulaRemainsVisibleAcrossExperienceModes() {
         val chord = runBlocking {
             checkNotNull(DefaultChordCatalogGateway(ChordRepository()).find("C").chord)
         }
@@ -131,11 +183,70 @@ class ComposeVisualStateTest {
             }
         }
         composeRule.waitForIdle()
-        assertTrue(composeRule.onAllNodesWithText("音程", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        composeRule.onNodeWithText("音程", useUnmergedTree = true).assertExists()
         composeRule.runOnIdle { professional.value = true }
-        composeRule.waitUntil(10_000) {
-            composeRule.onAllNodesWithText("音程", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        composeRule.onNodeWithText("音程", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun complexSlashDetailRendersInLightDarkAndLargeFont() {
+        val chord = runBlocking {
+            checkNotNull(DefaultChordCatalogGateway(ChordRepository()).find("Cmaj9/E").chord)
         }
+        val themeMode = mutableStateOf(ThemeMode.LIGHT)
+        val fontScale = mutableStateOf(1f)
+        composeRule.activity.setContent {
+            MusicTheme(AppSettings(themeMode = themeMode.value, experienceMode = ExperienceMode.PROFESSIONAL)) {
+                val density = LocalDensity.current.density
+                CompositionLocalProvider(LocalDensity provides Density(density, fontScale.value)) {
+                    ChordDetailScreen(
+                        state = ChordDetailUiState(loading = false, chord = chord, theoryExpanded = true),
+                        onBack = {}, onRetry = {}, onSelectVoicing = {}, onToggleFavorite = {},
+                        onToggleFamiliar = {}, onPlay = {}, onToggleTheory = {}, onDeleteCustomVoicing = {},
+                        onExportCurrent = {}, onExportAll = {}, onExplainWithAi = {}, onStartPractice = {},
+                        onAddProgression = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("和弦主体：Cmaj9 · 最低音：E", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText("第一转位斜杠和弦", useUnmergedTree = true).assertExists()
+        capture("visual-complex-light.png")
+        composeRule.runOnIdle {
+            themeMode.value = ThemeMode.DARK
+            fontScale.value = 2f
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Cmaj9/E", useUnmergedTree = true).assertExists()
+        capture("visual-complex-dark-large-font.png")
+    }
+
+    @Test
+    fun advancedVoicingExplainsIntentionalGuitarOmissions() {
+        val chord = runBlocking {
+            checkNotNull(DefaultChordCatalogGateway(ChordRepository()).find("C13").chord)
+        }
+        assertTrue(chord.voicings.isNotEmpty())
+        assertTrue(chord.voicings.first().omittedIntervals == listOf("5", "11"))
+
+        composeRule.activity.setContent {
+            MusicTheme(AppSettings(experienceMode = ExperienceMode.PROFESSIONAL)) {
+                ChordDetailScreen(
+                    state = ChordDetailUiState(loading = false, chord = chord),
+                    onBack = {}, onRetry = {}, onSelectVoicing = {}, onToggleFavorite = {},
+                    onToggleFamiliar = {}, onPlay = {}, onToggleTheory = {}, onDeleteCustomVoicing = {},
+                    onExportCurrent = {}, onExportAll = {}, onExplainWithAi = {}, onStartPractice = {},
+                    onAddProgression = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("chord_detail_content")
+            .performScrollToNode(hasText("吉他常用省略：5 · 11"))
+        composeRule.onNodeWithText("吉他常用省略：5 · 11", useUnmergedTree = true)
+            .assertExists()
+        capture("visual-advanced-voicing.png")
     }
 
     private fun capture(fileName: String) {

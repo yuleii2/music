@@ -102,6 +102,7 @@ private class HomePracticeGateway : PracticeGateway {
         toVoicingId: String?,
         success: Boolean,
         confirmationOffsetMillis: Long?,
+        stepToken: String,
     ) = AttemptProgressUi()
     override suspend fun discardSession(sessionId: String) = Unit
     override suspend fun saveResult(

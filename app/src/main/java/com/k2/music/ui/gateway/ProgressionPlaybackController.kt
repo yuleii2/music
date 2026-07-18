@@ -175,6 +175,7 @@ class DefaultProgressionTransport(
         metronome.setBpm(progression.bpm)
         metronome.setTimeSignature(TimeSignature.parse(progression.timeSignature))
         metronome.setAccentFirstBeat(true)
+        val anchor = System.nanoTime() + 100_000_000L
         _state.value = ProgressionPlaybackUiState(
             sessionType = PlaybackSessionType.PROGRESSION,
             status = TransportStatus.STOPPED,
@@ -187,9 +188,9 @@ class DefaultProgressionTransport(
             timeSignature = progression.timeSignature,
             loop = progression.loop,
             playbackMode = progression.playbackMode,
+            stepAnchorNanos = anchor,
         )
         require(progression.steps.isNotEmpty()) { "进行至少需要一个和弦才能播放。" }
-        val anchor = System.nanoTime() + 100_000_000L
         player.playAt(anchor)
         metronome.startAt(anchor)
     }

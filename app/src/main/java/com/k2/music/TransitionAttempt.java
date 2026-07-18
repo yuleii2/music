@@ -18,6 +18,9 @@ public final class TransitionAttempt {
     public final boolean success;
     public final Long confirmationOffsetMillis;
     public final PracticeSession.Type practiceMode;
+    /** Optional source metadata. Empty for ordinary non-song practice. */
+    public final String songId;
+    public final String sectionId;
 
     public TransitionAttempt(
             String id,
@@ -33,6 +36,27 @@ public final class TransitionAttempt {
             boolean success,
             Long confirmationOffsetMillis,
             PracticeSession.Type practiceMode
+    ) {
+        this(id, sessionId, timestampEpochMillis, fromChord, toChord, fromVoicingId, toVoicingId,
+                bpm, timeSignature, switchMode, success, confirmationOffsetMillis, practiceMode, "", "");
+    }
+
+    public TransitionAttempt(
+            String id,
+            String sessionId,
+            long timestampEpochMillis,
+            String fromChord,
+            String toChord,
+            String fromVoicingId,
+            String toVoicingId,
+            int bpm,
+            String timeSignature,
+            PracticeSession.SwitchMode switchMode,
+            boolean success,
+            Long confirmationOffsetMillis,
+            PracticeSession.Type practiceMode,
+            String songId,
+            String sectionId
     ) {
         this.id = requireText(id, "Attempt id", 128);
         this.sessionId = requireText(sessionId, "Session id", 128);
@@ -56,6 +80,8 @@ public final class TransitionAttempt {
         }
         this.confirmationOffsetMillis = confirmationOffsetMillis;
         this.practiceMode = Objects.requireNonNull(practiceMode, "practiceMode");
+        this.songId = optionalText(songId, 128);
+        this.sectionId = optionalText(sectionId, 128);
     }
 
     public static TransitionAttempt create(
@@ -119,13 +145,15 @@ public final class TransitionAttempt {
                 && timeSignature.equals(that.timeSignature)
                 && switchMode == that.switchMode
                 && Objects.equals(confirmationOffsetMillis, that.confirmationOffsetMillis)
-                && practiceMode == that.practiceMode;
+                && practiceMode == that.practiceMode
+                && songId.equals(that.songId)
+                && sectionId.equals(that.sectionId);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(id, sessionId, timestampEpochMillis, fromChord, toChord,
                 fromVoicingId, toVoicingId, bpm, timeSignature, switchMode, success,
-                confirmationOffsetMillis, practiceMode);
+                confirmationOffsetMillis, practiceMode, songId, sectionId);
     }
 }

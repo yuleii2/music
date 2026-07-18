@@ -15,11 +15,8 @@ import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.School
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -42,6 +39,9 @@ import com.k2.music.ui.MusicViewModelFactory
 import com.k2.music.ui.components.AdaptiveControlGroup
 import com.k2.music.ui.components.AdaptiveStat
 import com.k2.music.ui.components.AdaptiveStatGrid
+import com.k2.music.ui.components.StudioGroup
+import com.k2.music.ui.components.StudioPageHeader
+import com.k2.music.ui.components.StudioSegmentedControl
 import com.k2.music.ui.gateway.AiGateway
 import com.k2.music.ui.gateway.PracticeGateway
 import com.k2.music.ui.gateway.PracticeSummaryUi
@@ -163,7 +163,7 @@ fun ProfileScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item("header") {
-            Text("我的", style = MaterialTheme.typography.headlineLarge)
+            StudioPageHeader("设置", "本地偏好、学习资料与数据管理。")
         }
         if (state.loading) item("loading") {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
@@ -179,7 +179,7 @@ fun ProfileScreen(
                         AdaptiveStat("最佳连续", state.summary.bestStreak.toString()),
                     ),
                 )
-                Button(onClick = onPracticeProgress) { Text("查看练习进步") }
+                StudioButton(onClick = onPracticeProgress) { Text("查看练习进步") }
             }
         }
         item("learning_profile") {
@@ -194,39 +194,37 @@ fun ProfileScreen(
         item("appearance") {
             ProfileSection(Icons.Rounded.ColorLens, "外观与动画") {
                 Text("主题", style = MaterialTheme.typography.labelLarge)
-                AdaptiveControlGroup {
-                    listOf(
+                StudioSegmentedControl(
+                    options = listOf(
                         ThemeMode.SYSTEM to "跟随系统",
                         ThemeMode.LIGHT to "浅色",
                         ThemeMode.DARK to "深色",
-                    ).forEach { (mode, label) ->
-                        FilterChip(selected = settings.themeMode == mode, onClick = { onTheme(mode) }, label = { Text(label) })
-                    }
-                }
+                    ),
+                    selected = settings.themeMode,
+                    onSelected = onTheme,
+                )
                 Text("动画", style = MaterialTheme.typography.labelLarge)
-                AdaptiveControlGroup {
-                    listOf(
+                StudioSegmentedControl(
+                    options = listOf(
                         MotionLevel.FULL to "完整",
                         MotionLevel.REDUCED to "简化",
                         MotionLevel.OFF to "关闭",
-                    ).forEach { (level, label) ->
-                        FilterChip(selected = settings.motionLevel == level, onClick = { onMotion(level) }, label = { Text(label) })
-                    }
-                }
+                    ),
+                    selected = settings.motionLevel,
+                    onSelected = onMotion,
+                )
                 Text("体验模式", style = MaterialTheme.typography.labelLarge)
-                AdaptiveControlGroup {
-                    ExperienceMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = settings.experienceMode == mode,
-                            onClick = { onExperience(mode) },
-                            label = { Text(if (mode == ExperienceMode.BEGINNER) "新手" else "专业") },
-                        )
-                    }
-                }
+                StudioSegmentedControl(
+                    options = ExperienceMode.entries.map { mode ->
+                        mode to if (mode == ExperienceMode.BEGINNER) "新手" else "专业"
+                    },
+                    selected = settings.experienceMode,
+                    onSelected = onExperience,
+                )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("动态颜色")
-                        Text("默认关闭以保持琴房品牌色", style = MaterialTheme.typography.bodySmall)
+                        Text("系统强调色")
+                        Text("仅替换按钮与选中状态，界面材质保持不变", style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(checked = settings.dynamicColor, onCheckedChange = onDynamicColor)
                 }
@@ -236,7 +234,7 @@ fun ProfileScreen(
             ProfileSection(Icons.Rounded.AutoAwesome, "AI 状态") {
                 Text(if (state.aiConfigured) "已配置；仍只在主动发送时联网" else "未配置；当前零网络请求")
                 AdaptiveControlGroup {
-                    Button(onClick = onAiAssistant, enabled = state.aiConfigured) { Text("AI 助手") }
+                    StudioButton(onClick = onAiAssistant, enabled = state.aiConfigured) { Text("AI 助手") }
                     TextButton(onClick = onAiSettings) { Text("AI 设置") }
                 }
             }
@@ -244,13 +242,13 @@ fun ProfileScreen(
         item("data") {
             ProfileSection(Icons.Rounded.DataObject, "数据与导出") {
                 Text("本地收藏、历史、自定义指法、进行和练习记录不会上传。")
-                Button(onClick = onDataBackup) { Text("数据与备份") }
-                Button(onClick = onExportFavorites) { Text("导出收藏指法") }
+                StudioButton(onClick = onDataBackup) { Text("数据与备份") }
+                StudioButton(onClick = onExportFavorites) { Text("导出收藏指法") }
             }
         }
         item("about") {
             ProfileSection(Icons.Rounded.Info, "关于软件") {
-                Text("吉他和弦工作室 Android V1.4")
+                Text("吉他和弦工作室 Android V1.6")
                 Text("离线乐理、练习、音频、存储与导出核心。", style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -263,7 +261,7 @@ private fun ProfileSection(
     title: String,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    StudioGroup {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)

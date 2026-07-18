@@ -26,7 +26,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,7 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -143,7 +143,7 @@ fun RecognitionScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("recognition_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("反向识别") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -239,7 +239,7 @@ fun RecognitionScreen(
                 }
             }
             item("identify") {
-                Button(onClick = onIdentify, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                StudioButton(onClick = onIdentify, modifier = Modifier.fillMaxWidth().height(52.dp)) {
                     if (state.calculating) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
@@ -307,11 +307,25 @@ private fun CandidateCard(
                 Text("${match.score}%", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             }
             Text("${match.chineseName} · ${match.matchLabel}", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "根音：${match.chord.root} · 最低音：${match.bassNote.ifBlank { "未指定" }}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
             Text("组成音：${match.chordNotes.joinToString(" · ")}", style = MaterialTheme.typography.bodyMedium)
             Text("实际音：${match.actualNotes.joinToString(" · ")}", style = MaterialTheme.typography.bodyMedium)
             if (match.missingNotes.isNotEmpty()) Text("缺少：${match.missingNotes.joinToString(" · ")}")
             if (match.extraNotes.isNotEmpty()) Text("额外：${match.extraNotes.joinToString(" · ")}")
             if (match.inversion) Text("转位：最低音为 ${match.bassNote}")
+            Text(
+                when {
+                    match.inversion -> "判断依据：组成音接近主体和弦，且最低音不是根音，因此优先给出转位/斜杠名称。"
+                    match.missingNotes.isNotEmpty() -> "判断依据：关键音与主体和弦匹配，并标出了当前缺失音。"
+                    match.extraNotes.isNotEmpty() -> "判断依据：主体和弦音完整，同时检测到额外音。"
+                    else -> "判断依据：输入音高集合与该和弦公式匹配。"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             AdaptiveControlGroup(Modifier.fillMaxWidth()) {
                 TextButton(onClick = onPlay) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null)
@@ -378,7 +392,7 @@ private fun SaveCustomSheet(
             OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("备注（可选）") }, minLines = 2)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-                Button(onClick = { onSave(symbol, name, fingers, startFret, note) }, modifier = Modifier.weight(1f)) { Text("保存") }
+                StudioButton(onClick = { onSave(symbol, name, fingers, startFret, note) }, modifier = Modifier.weight(1f)) { Text("保存") }
             }
         }
     }

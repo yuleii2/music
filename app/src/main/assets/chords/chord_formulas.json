@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "formulas": [
     {
       "id": "maj",
@@ -339,7 +339,8 @@
         "m7b5",
         "ø",
         "ø7",
-        "half-diminished"
+        "half-diminished",
+        "小七降五"
       ],
       "description": "减三和弦加入小七度，常见于小调的二级和弦。",
       "category": "seventh",
@@ -357,7 +358,10 @@
       ],
       "aliases": [
         "aug",
-        "+"
+        "+",
+        "(#5)",
+        "sharp5",
+        "升五"
       ],
       "description": "大三和弦升高五度，声音向外扩张并带有不稳定感。",
       "category": "altered",
@@ -394,7 +398,9 @@
       ],
       "aliases": [
         "7sus4",
-        "7sus"
+        "7sus",
+        "挂四七",
+        "属七挂四"
       ],
       "description": "属七和弦以四度替代三度，兼具悬挂感和属功能。",
       "category": "suspended",
@@ -494,6 +500,21 @@
         "9",
         "11"
       ],
+      "requiredIntervals": [
+        "1",
+        "b7",
+        "11"
+      ],
+      "optionalIntervals": [
+        "3",
+        "5",
+        "9"
+      ],
+      "omittableIntervals": [
+        "3",
+        "5",
+        "9"
+      ],
       "aliases": [
         "11",
         "dom11",
@@ -524,6 +545,252 @@
       ],
       "description": "属和弦向上扩展至十三度；吉他按法通常省略五度或十一度。",
       "category": "extended",
+      "difficulty": 5
+    },
+    {
+      "id": "maj7#5",
+      "suffix": "maj7#5",
+      "chineseName": "大七升五和弦",
+      "englishName": "Major seventh sharp fifth",
+      "intervals": ["1", "3", "#5", "7"],
+      "aliases": ["maj7#5", "M7#5", "Δ7#5", "maj7♯5"],
+      "description": "大七和弦升高五度，同时保留大七度，兼具明亮色彩与增和弦张力。",
+      "category": "seventh",
+      "difficulty": 5
+    },
+    {
+      "id": "mMaj9",
+      "suffix": "mMaj9",
+      "chineseName": "小大九和弦",
+      "englishName": "Minor major ninth",
+      "intervals": ["1", "b3", "5", "7", "9"],
+      "aliases": ["mMaj9", "minMaj9", "mM9", "-M9"],
+      "description": "小三和弦、大七度与九度结合，具有深沉且悬疑的现代色彩。",
+      "category": "ninth",
+      "difficulty": 5
+    },
+    {
+      "id": "madd9",
+      "suffix": "madd9",
+      "chineseName": "小加九和弦",
+      "englishName": "Minor added ninth",
+      "intervals": ["1", "b3", "5", "9"],
+      "aliases": ["madd9", "minadd9", "m(add9)", "小加九"],
+      "description": "在小三和弦上加入九度但不加入七度，常用于氛围化伴奏。",
+      "category": "added-tone",
+      "difficulty": 3
+    },
+    {
+      "id": "maj7#9",
+      "suffix": "maj7#9",
+      "chineseName": "大七升九和弦",
+      "englishName": "Major seventh sharp ninth",
+      "intervals": ["1", "3", "5", "7", "#9"],
+      "aliases": ["maj7#9", "M7#9", "Δ7#9", "maj7♯9"],
+      "description": "大七和弦加入升九度，保留大三度与大七度，色彩尖锐而现代。",
+      "category": "ninth",
+      "difficulty": 5
+    },
+    {
+      "id": "m7b9",
+      "suffix": "m7b9",
+      "chineseName": "小七降九和弦",
+      "englishName": "Minor seventh flat ninth",
+      "intervals": ["1", "b3", "5", "b7", "b9"],
+      "aliases": ["m7b9", "min7b9", "m7♭9", "小七降九"],
+      "description": "小七和弦加入降九度，形成密集而阴暗的张力。",
+      "category": "ninth",
+      "difficulty": 5
+    },
+    {
+      "id": "7sus2",
+      "suffix": "7sus2",
+      "chineseName": "属七挂二和弦",
+      "englishName": "Dominant seventh suspended second",
+      "intervals": ["1", "2", "5", "b7"],
+      "aliases": ["7sus2", "7s2", "挂二七", "属七挂二"],
+      "description": "以二度替代三度的属七和弦，兼具开放感与属功能。",
+      "category": "suspended",
+      "difficulty": 3
+    },
+    {
+      "id": "9sus4",
+      "suffix": "9sus4",
+      "chineseName": "属九挂四和弦",
+      "englishName": "Dominant ninth suspended fourth",
+      "intervals": ["1", "4", "5", "b7", "9"],
+      "aliases": ["9sus4", "9sus", "挂四九", "属九挂四"],
+      "description": "属九和弦用四度替代三度，常见于放克与现代和声。",
+      "category": "suspended",
+      "difficulty": 4
+    },
+    {
+      "id": "maj11",
+      "suffix": "maj11",
+      "chineseName": "大十一和弦",
+      "englishName": "Major eleventh",
+      "intervals": ["1", "3", "5", "7", "9", "11"],
+      "aliases": ["maj11", "M11", "Δ11", "大十一"],
+      "description": "大七和弦继续扩展至十一度；吉他按法可省略五度或九度。",
+      "category": "extended",
+      "difficulty": 5
+    },
+    {
+      "id": "m11",
+      "suffix": "m11",
+      "chineseName": "小十一和弦",
+      "englishName": "Minor eleventh",
+      "intervals": ["1", "b3", "5", "b7", "9", "11"],
+      "aliases": ["m11", "min11", "minor11", "小十一"],
+      "description": "小九和弦加入十一度，常用于爵士、灵魂乐与氛围音乐。",
+      "category": "extended",
+      "difficulty": 5
+    },
+    {
+      "id": "maj13",
+      "suffix": "maj13",
+      "chineseName": "大十三和弦",
+      "englishName": "Major thirteenth",
+      "intervals": ["1", "3", "5", "7", "9", "11", "13"],
+      "aliases": ["maj13", "M13", "Δ13", "大十三"],
+      "description": "大七和声扩展至十三度；实际吉他按法通常保留三度、大七度和十三度。",
+      "category": "extended",
+      "difficulty": 5
+    },
+    {
+      "id": "m13",
+      "suffix": "m13",
+      "chineseName": "小十三和弦",
+      "englishName": "Minor thirteenth",
+      "intervals": ["1", "b3", "5", "b7", "9", "11", "13"],
+      "aliases": ["m13", "min13", "minor13", "小十三"],
+      "description": "小七和声扩展至十三度；五度、九度或十一度可按指法需要省略。",
+      "category": "extended",
+      "difficulty": 5
+    },
+    {
+      "id": "add11",
+      "suffix": "add11",
+      "chineseName": "加十一和弦",
+      "englishName": "Added eleventh",
+      "intervals": ["1", "3", "5", "11"],
+      "aliases": ["add11", "add4", "加十一"],
+      "description": "在大三和弦上加入十一度但不包含七度或九度；三度仍然保留。",
+      "category": "added-tone",
+      "difficulty": 3
+    },
+    {
+      "id": "add13",
+      "suffix": "add13",
+      "chineseName": "加十三和弦",
+      "englishName": "Added thirteenth",
+      "intervals": ["1", "3", "5", "13"],
+      "aliases": ["add13", "add6", "加十三"],
+      "description": "在大三和弦上加入十三度但不加入七度、九度或十一度。",
+      "category": "added-tone",
+      "difficulty": 3
+    },
+    {
+      "id": "b5",
+      "suffix": "(b5)",
+      "chineseName": "降五变化和弦",
+      "englishName": "Flat fifth chord",
+      "intervals": ["1", "3", "b5"],
+      "aliases": ["(b5)", "flat5", "降五"],
+      "description": "大三和弦降低五度。为避免与 Cb5 这类根音记谱混淆，标准显示使用 C(b5)。",
+      "category": "altered",
+      "difficulty": 4
+    },
+    {
+      "id": "b9",
+      "suffix": "(b9)",
+      "chineseName": "降九变化和弦",
+      "englishName": "Added flat ninth chord",
+      "intervals": ["1", "3", "5", "b9"],
+      "aliases": ["(b9)", "addb9", "flat9", "降九"],
+      "description": "大三和弦加入降九度但不默认加入七度，标准显示使用括号避免根音歧义。",
+      "category": "altered",
+      "difficulty": 5
+    },
+    {
+      "id": "sharp9",
+      "suffix": "(#9)",
+      "chineseName": "升九变化和弦",
+      "englishName": "Added sharp ninth chord",
+      "intervals": ["1", "3", "5", "#9"],
+      "aliases": ["(#9)", "add#9", "sharp9", "升九"],
+      "description": "大三和弦加入升九度但不默认加入七度，标准显示使用 C(#9)。",
+      "category": "altered",
+      "difficulty": 5
+    },
+    {
+      "id": "sharp11",
+      "suffix": "(#11)",
+      "chineseName": "升十一变化和弦",
+      "englishName": "Added sharp eleventh chord",
+      "intervals": ["1", "3", "5", "#11"],
+      "aliases": ["(#11)", "add#11", "sharp11", "升十一"],
+      "description": "大三和弦加入升十一度，标准显示使用括号以明确它是变化音。",
+      "category": "altered",
+      "difficulty": 5
+    },
+    {
+      "id": "b13",
+      "suffix": "(b13)",
+      "chineseName": "降十三变化和弦",
+      "englishName": "Added flat thirteenth chord",
+      "intervals": ["1", "3", "5", "b13"],
+      "aliases": ["(b13)", "addb13", "flat13", "降十三"],
+      "description": "大三和弦加入降十三度但不默认加入七度，标准显示使用括号。",
+      "category": "altered",
+      "difficulty": 5
+    },
+    {
+      "id": "maj7#11",
+      "suffix": "maj7#11",
+      "chineseName": "大七升十一和弦",
+      "englishName": "Major seventh sharp eleventh",
+      "intervals": ["1", "3", "5", "7", "#11"],
+      "aliases": ["maj7#11", "M7#11", "Δ7#11", "maj7♯11"],
+      "description": "大七和弦加入升十一度，常见于 Lydian 色彩和现代爵士。",
+      "category": "altered",
+      "difficulty": 5
+    },
+    {
+      "id": "7#11",
+      "suffix": "7#11",
+      "chineseName": "属七升十一和弦",
+      "englishName": "Dominant seventh sharp eleventh",
+      "intervals": ["1", "3", "5", "b7", "#11"],
+      "aliases": ["7#11", "7♯11", "属七升十一"],
+      "description": "属七和弦加入升十一度，常用于三全音替代与现代属功能。",
+      "category": "altered-dominant",
+      "difficulty": 5
+    },
+    {
+      "id": "7b13",
+      "suffix": "7b13",
+      "chineseName": "属七降十三和弦",
+      "englishName": "Dominant seventh flat thirteenth",
+      "intervals": ["1", "3", "5", "b7", "b13"],
+      "aliases": ["7b13", "7♭13", "属七降十三"],
+      "description": "属七和弦加入降十三度，常用于小调解决与变化属和声。",
+      "category": "altered-dominant",
+      "difficulty": 5
+    },
+    {
+      "id": "7alt",
+      "suffix": "7alt",
+      "chineseName": "变化属七和弦",
+      "englishName": "Altered dominant seventh",
+      "intervals": ["1", "3", "b5", "#5", "b7", "b9", "#9"],
+      "aliases": ["7alt", "alt7", "altered7", "变化属七"],
+      "requiredIntervals": ["1", "3", "b7"],
+      "optionalIntervals": ["b5", "#5", "b9", "#9"],
+      "omittableIntervals": ["b5", "#5", "b9", "#9"],
+      "requiredAnyOf": [["b5", "#5"], ["b9", "#9"]],
+      "description": "变化属七保留根音、三音和小七度，并至少选择一种变化五度与一种变化九度；界面列出的是可用变化音集合。",
+      "category": "altered-dominant",
       "difficulty": 5
     }
   ]

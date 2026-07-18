@@ -27,6 +27,7 @@ public final class ChordShape {
     public final boolean barre;
     public final String note;
     public final List<String> tags;
+    public final List<String> omittedIntervals;
 
     public ChordShape(
             String root,
@@ -76,6 +77,29 @@ public final class ChordShape {
             String note,
             List<String> tags
     ) {
+        this(id, name, root, qualityId, bassNote, frets, fingers, baseFret, visibleFretCount,
+                difficulty, shapeType, common, simplified, barre, note, tags, Collections.emptyList());
+    }
+
+    public ChordShape(
+            String id,
+            String name,
+            String root,
+            String qualityId,
+            String bassNote,
+            int[] frets,
+            int[] fingers,
+            int baseFret,
+            int visibleFretCount,
+            int difficulty,
+            String shapeType,
+            boolean common,
+            boolean simplified,
+            boolean barre,
+            String note,
+            List<String> tags,
+            List<String> omittedIntervals
+    ) {
         if (frets == null || fingers == null || frets.length != 6 || fingers.length != 6) {
             throw new IllegalArgumentException("ChordShape must describe exactly six strings.");
         }
@@ -95,10 +119,13 @@ public final class ChordShape {
         this.barre = barre;
         this.note = note == null ? "" : note;
         this.tags = Collections.unmodifiableList(new ArrayList<>(tags == null ? Collections.emptyList() : tags));
+        this.omittedIntervals = Collections.unmodifiableList(new ArrayList<>(
+                omittedIntervals == null ? Collections.emptyList() : omittedIntervals
+        ));
     }
 
     public String symbol(ChordQuality quality) {
-        String suffix = suffixForQuality(quality == null ? qualityId : quality.id);
+        String suffix = quality == null ? suffixForQuality(qualityId) : quality.symbolSuffix;
         String symbol = root + suffix;
         return bassNote.isEmpty() ? symbol : symbol + "/" + bassNote;
     }
@@ -171,7 +198,8 @@ public final class ChordShape {
                 isSimplified(),
                 isBarre(),
                 note,
-                this
+                this,
+                omittedIntervals
         );
     }
 

@@ -37,6 +37,13 @@ import com.k2.music.ui.export.ExportRoute
 import com.k2.music.ui.profile.ProfileRoute
 import com.k2.music.ui.profile.PracticeProgressRoute
 import com.k2.music.ui.backup.DataBackupRoute
+import com.k2.music.ui.song.SongDetailRoute
+import com.k2.music.ui.song.SongEditorRoute
+import com.k2.music.ui.song.SongImportPreviewRoute
+import com.k2.music.ui.song.SongImportRoute
+import com.k2.music.ui.song.SongLibraryRoute
+import com.k2.music.ui.song.SongPracticeRoute
+import com.k2.music.song.SongPracticeMode
 import com.k2.music.ui.gateway.ExportScopeUi
 import com.k2.music.ui.gateway.PracticeConfigUi
 import com.k2.music.ui.gateway.PracticeModeUi
@@ -98,6 +105,38 @@ private fun SharedTransitionNavHost(
                     onNavigateToTools = { navController.navigateToRoot(AppDestination.Workbench) },
                     onStartPractice = { navController.navigate(practiceSessionRoute(it)) },
                     onAdjustPractice = { navController.navigate(practiceSetupRoute(it)) },
+                    onSongTask = { task ->
+                        when (task.mode) {
+                            SongPracticeMode.PERFORMANCE -> navController.navigate(
+                                songPracticeRoute(
+                                    task.songId,
+                                    task.sectionId,
+                                    task.bpm,
+                                    task.transposeSemitones,
+                                    task.capoFret,
+                                    task.loopEnabled,
+                                    task.showFretboard,
+                                ),
+                            )
+                            SongPracticeMode.GUIDED_TRANSITION -> navController.navigate(
+                                practiceSessionRoute(
+                                    PracticeConfigUi(
+                                        mode = if (task.transition == null) PracticeModeUi.MULTI_CHORD else PracticeModeUi.TWO_CHORD,
+                                        symbols = task.transition?.let { "${it.fromChord} ${it.toChord}" }.orEmpty(),
+                                        durationSeconds = 120,
+                                        bpm = task.bpm,
+                                        timeSignature = task.timeSignature,
+                                        songId = task.songId,
+                                        songSectionId = task.sectionId.orEmpty(),
+                                        songTransitionFrom = task.transition?.fromChord.orEmpty(),
+                                        songTransitionTo = task.transition?.toChord.orEmpty(),
+                                        useProgressionRhythm = true,
+                                    ),
+                                ),
+                            )
+                            null -> navController.navigate(songDetailRoute(task.songId))
+                        }
+                    },
                 )
             }
         }
@@ -135,6 +174,7 @@ private fun SharedTransitionNavHost(
                 onSetup = { navController.navigate(practiceSetupRoute(it)) },
                 onStartDirect = { navController.navigate(practiceSessionRoute(it)) },
                 onAiPlan = { navController.navigate(aiAssistantRoute("practice", it)) },
+                onSongLibrary = { navController.navigate(ROUTE_SONG_LIBRARY) },
             )
         }
         composable(AppDestination.Profile.route) {
@@ -153,6 +193,74 @@ private fun SharedTransitionNavHost(
         }
         composable(ROUTE_DATA_BACKUP) {
             DataBackupRoute(services, navController::navigateUp)
+        }
+        composable(ROUTE_SONG_LIBRARY) {
+            SongLibraryRoute(
+                services = services,
+                onBack = navController::navigateUp,
+                onImport = { navController.navigate(ROUTE_SONG_IMPORT) },
+                onManualCreate = { navController.navigate(songEditorRoute("new")) },
+                onOpenSong = { navController.navigate(songDetailRoute(it)) },
+            )
+        }
+        composable(ROUTE_SONG_IMPORT) {
+            SongImportRoute(
+                services = services,
+                onBack = navController::navigateUp,
+                onPreview = { navController.navigate(ROUTE_SONG_IMPORT_PREVIEW) },
+            )
+        }
+        composable(ROUTE_SONG_IMPORT_PREVIEW) {
+            SongImportPreviewRoute(
+                services = services,
+                onBack = navController::navigateUp,
+                onSaved = { songId ->
+                    navController.navigate(songDetailRoute(songId)) {
+                        popUpTo(ROUTE_SONG_IMPORT) { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable(
+            route = SONG_DETAIL_PATTERN,
+            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+        ) {
+            SongDetailRoute(
+                services = services,
+                onBack = navController::navigateUp,
+                onEdit = { navController.navigate(songEditorRoute(it)) },
+                onGuidedPractice = { config -> navController.navigate(practiceSessionRoute(config)) },
+                onPerformance = { songId, sectionId -> navController.navigate(songPracticeRoute(songId, sectionId)) },
+            )
+        }
+        composable(
+            route = SONG_EDITOR_PATTERN,
+            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+        ) {
+            SongEditorRoute(
+                services = services,
+                onBack = navController::navigateUp,
+                onSaved = { songId ->
+                    navController.navigate(songDetailRoute(songId)) {
+                        popUpTo(ROUTE_SONG_LIBRARY)
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+        composable(
+            route = SONG_PRACTICE_PATTERN,
+            arguments = listOf(
+                navArgument("id") { type = NavType.StringType },
+                navArgument("sectionId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("restoreBpm") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("restoreTranspose") { type = NavType.IntType; defaultValue = 99 },
+                navArgument("restoreCapo") { type = NavType.IntType; defaultValue = -1 },
+                navArgument("restoreLoop") { type = NavType.IntType; defaultValue = -1 },
+                navArgument("restoreFretboard") { type = NavType.IntType; defaultValue = -1 },
+            ),
+        ) {
+            SongPracticeRoute(services, navController::navigateUp)
         }
         composable(
             route = CHORD_DETAIL_PATTERN,
@@ -301,6 +409,10 @@ private fun SharedTransitionNavHost(
                 maxFret = args.getInt("maxFret"),
                 sourceProgressionId = args.getString("progressionId").orEmpty(),
                 useProgressionRhythm = args.getBoolean("progressionRhythm"),
+                songId = args.getString("songId").orEmpty(),
+                songSectionId = args.getString("songSectionId").orEmpty(),
+                songTransitionFrom = args.getString("songFrom").orEmpty(),
+                songTransitionTo = args.getString("songTo").orEmpty(),
             )
             PracticeResultScreen(
                 seconds = args.getInt("seconds"),
@@ -342,6 +454,9 @@ const val ROUTE_METRONOME = "metronome"
 const val ROUTE_AI_SETTINGS = "ai-settings"
 const val ROUTE_PRACTICE_PROGRESS = "practice-progress"
 const val ROUTE_DATA_BACKUP = "data-backup"
+const val ROUTE_SONG_LIBRARY = "song-library"
+const val ROUTE_SONG_IMPORT = "song-import"
+const val ROUTE_SONG_IMPORT_PREVIEW = "song-import-preview"
 
 private fun practiceArguments() = listOf(
     navArgument("mode") { type = NavType.StringType },
@@ -355,6 +470,10 @@ private fun practiceArguments() = listOf(
     navArgument("maxFret") { type = NavType.IntType },
     navArgument("progressionId") { type = NavType.StringType; defaultValue = "" },
     navArgument("progressionRhythm") { type = NavType.BoolType; defaultValue = false },
+    navArgument("songId") { type = NavType.StringType; defaultValue = "" },
+    navArgument("songSectionId") { type = NavType.StringType; defaultValue = "" },
+    navArgument("songFrom") { type = NavType.StringType; defaultValue = "" },
+    navArgument("songTo") { type = NavType.StringType; defaultValue = "" },
 )
 
 private fun practiceResultArguments() = listOf(
@@ -378,6 +497,10 @@ private fun practiceResultArguments() = listOf(
     navArgument("maxFret") { type = NavType.IntType },
     navArgument("progressionId") { type = NavType.StringType; defaultValue = "" },
     navArgument("progressionRhythm") { type = NavType.BoolType; defaultValue = false },
+    navArgument("songId") { type = NavType.StringType; defaultValue = "" },
+    navArgument("songSectionId") { type = NavType.StringType; defaultValue = "" },
+    navArgument("songFrom") { type = NavType.StringType; defaultValue = "" },
+    navArgument("songTo") { type = NavType.StringType; defaultValue = "" },
 )
 
 private inline fun <reified T : Enum<T>> enumValue(raw: String?, fallback: T): T =

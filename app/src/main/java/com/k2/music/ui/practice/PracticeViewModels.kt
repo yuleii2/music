@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 data class PracticeHomeUiState(
@@ -188,14 +190,20 @@ data class PracticeSessionUiState(
     val failureCount: Int = 0,
     val currentStreak: Int = 0,
     val bestStreak: Int = 0,
+    val lastRecordedStepToken: String? = null,
     val recordingResult: Boolean = false,
     val finishing: Boolean = false,
+    val resetting: Boolean = false,
+    val abandoning: Boolean = false,
     val error: String? = null,
-)
+) {
+    val operationInProgress: Boolean get() = finishing || resetting || abandoning
+}
 
 sealed interface PracticeSessionEffect {
     data class Finished(val result: PracticeResultUi, val config: PracticeConfigUi) : PracticeSessionEffect
     data class Message(val text: String) : PracticeSessionEffect
+    data object Abandoned : PracticeSessionEffect
 }
 
 class PracticeSessionViewModel(
@@ -224,12 +232,17 @@ class PracticeSessionViewModel(
             failureCount = savedStateHandle[KEY_FAILURE_COUNT] ?: 0,
             currentStreak = savedStateHandle[KEY_CURRENT_STREAK] ?: 0,
             bestStreak = savedStateHandle[KEY_BEST_STREAK] ?: 0,
+            lastRecordedStepToken = savedStateHandle[KEY_LAST_STEP_TOKEN],
         ),
     )
     private var ticker: Job? = null
     private var anchorElapsedMillis = 0L
     private var anchorRemainingMillis = _state.value.remainingMillis
     private var resultSaved = false
+    private val operationMutex = Mutex()
+    private var pendingRecordJob: Job? = null
+    private var operationGeneration = 0L
+    private var exclusiveAction: ExclusiveAction? = null
 
     val state: StateFlow<PracticeSessionUiState> = _state.asStateFlow()
     val playback = transport.state
@@ -265,7 +278,7 @@ class PracticeSessionViewModel(
     }
 
     fun pause() {
-        if (_state.value.paused || _state.value.finishing) return
+        if (_state.value.paused || exclusiveAction != null) return
         if (_state.value.loading) {
             savedStateHandle[KEY_PAUSED] = true
             _state.value = _state.value.copy(paused = true)
@@ -281,7 +294,7 @@ class PracticeSessionViewModel(
 
     fun resume() {
         val progression = _state.value.progression ?: return
-        if (_state.value.remainingMillis <= 0 || _state.value.finishing) return
+        if (_state.value.remainingMillis <= 0 || exclusiveAction != null) return
         val transportState = transport.state.value
         if (
             transportState.sessionType == PlaybackSessionType.PROGRESSION &&
@@ -305,31 +318,49 @@ class PracticeSessionViewModel(
 
     private fun recordAttempt(success: Boolean) {
         val currentState = _state.value
-        if (currentState.paused || currentState.finishing || currentState.recordingResult) return
+        if (currentState.paused || currentState.operationInProgress || currentState.recordingResult) return
         val progression = currentState.progression ?: return
         val playback = transport.state.value
         if (playback.status != TransportStatus.PLAYING || playback.stepIndex !in progression.steps.indices) return
+        val stepAnchorNanos = playback.stepAnchorNanos.takeIf { it > 0L } ?: return
+        val stepToken = "${playback.progressionId.orEmpty()}:${playback.stepIndex}:$stepAnchorNanos"
+        if (savedStateHandle.get<String>(KEY_LAST_STEP_TOKEN) == stepToken) return
         val toIndex = playback.stepIndex
         val fromIndex = (toIndex - 1 + progression.steps.size) % progression.steps.size
         val from = progression.steps[fromIndex]
         val to = progression.steps[toIndex]
-        val confirmationOffset = playback.stepAnchorNanos
-            .takeIf { it > 0L }
-            ?.let { (clock.nanoTime() - it) / 1_000_000L }
+        if (
+            config.songTransitionFrom.isNotBlank() && config.songTransitionTo.isNotBlank() &&
+            (from.chordSymbol != config.songTransitionFrom || to.chordSymbol != config.songTransitionTo)
+        ) {
+            _state.value = currentState.copy(
+                error = "当前播放步骤是 ${from.chordSymbol} → ${to.chordSymbol}；请在 ${config.songTransitionFrom} → ${config.songTransitionTo} 到达时记录。",
+            )
+            return
+        }
+        val confirmationOffset = (clock.nanoTime() - stepAnchorNanos) / 1_000_000L
         _state.value = currentState.copy(recordingResult = true, error = null)
-        viewModelScope.launch {
-            runCatching {
-                gateway.recordAttempt(
-                    sessionId,
-                    config,
-                    from.chordSymbol,
-                    to.chordSymbol,
-                    from.voicingId.takeIf { it.isNotBlank() },
-                    to.voicingId.takeIf { it.isNotBlank() },
-                    success,
-                    confirmationOffset,
-                )
-            }.onSuccess { progress ->
+        val requestGeneration = operationGeneration
+        val job = viewModelScope.launch {
+            val outcome = operationMutex.withLock {
+                if (requestGeneration != operationGeneration) return@withLock null
+                runCatching {
+                    gateway.recordAttempt(
+                        sessionId,
+                        config,
+                        from.chordSymbol,
+                        to.chordSymbol,
+                        from.voicingId.takeIf { it.isNotBlank() },
+                        to.voicingId.takeIf { it.isNotBlank() },
+                        success,
+                        confirmationOffset,
+                        stepToken,
+                    )
+                }
+            }
+            if (requestGeneration != operationGeneration || outcome == null) return@launch
+            outcome.onSuccess { progress ->
+                savedStateHandle[KEY_LAST_STEP_TOKEN] = stepToken
                 persistProgress(progress)
                 _state.value = _state.value.copy(
                     completionCount = progress.attemptCount,
@@ -337,6 +368,7 @@ class PracticeSessionViewModel(
                     failureCount = progress.failureCount,
                     currentStreak = progress.currentStreak,
                     bestStreak = progress.bestStreak,
+                    lastRecordedStepToken = stepToken,
                     recordingResult = false,
                 )
             }.onFailure {
@@ -346,55 +378,81 @@ class PracticeSessionViewModel(
                 )
             }
         }
+        pendingRecordJob = job
+        job.invokeOnCompletion { if (pendingRecordJob === job) pendingRecordJob = null }
     }
 
     fun reset() {
+        if (exclusiveAction != null) return
+        exclusiveAction = ExclusiveAction.RESET
+        operationGeneration++
         transport.stop()
         ticker?.cancel()
-        savedStateHandle[KEY_REMAINING] = fullDurationMillis
-        savedStateHandle[KEY_COUNT] = 0
-        savedStateHandle[KEY_SUCCESS_COUNT] = 0
-        savedStateHandle[KEY_FAILURE_COUNT] = 0
-        savedStateHandle[KEY_CURRENT_STREAK] = 0
-        savedStateHandle[KEY_BEST_STREAK] = 0
-        savedStateHandle[KEY_PAUSED] = false
-        _state.value = _state.value.copy(
-            remainingMillis = fullDurationMillis,
-            paused = false,
-            completionCount = 0,
-            successCount = 0,
-            failureCount = 0,
-            currentStreak = 0,
-            bestStreak = 0,
-            recordingResult = true,
-            error = null,
-        )
+        savedStateHandle[KEY_PAUSED] = true
+        _state.value = _state.value.copy(paused = true, resetting = true, error = null)
+        val pending = pendingRecordJob
         viewModelScope.launch {
-            runCatching { gateway.discardSession(sessionId) }
-            _state.value = _state.value.copy(recordingResult = false)
-            resume()
+            pending?.join()
+            val outcome = operationMutex.withLock { runCatching { gateway.discardSession(sessionId) } }
+            outcome.onSuccess {
+                savedStateHandle[KEY_REMAINING] = fullDurationMillis
+                savedStateHandle[KEY_COUNT] = 0
+                savedStateHandle[KEY_SUCCESS_COUNT] = 0
+                savedStateHandle[KEY_FAILURE_COUNT] = 0
+                savedStateHandle[KEY_CURRENT_STREAK] = 0
+                savedStateHandle[KEY_BEST_STREAK] = 0
+                savedStateHandle[KEY_LAST_STEP_TOKEN] = null
+                savedStateHandle[KEY_PAUSED] = false
+                _state.value = _state.value.copy(
+                    remainingMillis = fullDurationMillis,
+                    paused = false,
+                    completionCount = 0,
+                    successCount = 0,
+                    failureCount = 0,
+                    currentStreak = 0,
+                    bestStreak = 0,
+                    lastRecordedStepToken = null,
+                    recordingResult = false,
+                    resetting = false,
+                )
+                exclusiveAction = null
+                resume()
+            }.onFailure {
+                exclusiveAction = null
+                _state.value = _state.value.copy(
+                    recordingResult = false,
+                    resetting = false,
+                    error = it.message ?: "无法重置练习记录。",
+                )
+            }
         }
     }
 
     fun finish() {
-        if (resultSaved || _state.value.finishing) return
+        if (resultSaved || exclusiveAction != null) return
+        exclusiveAction = ExclusiveAction.FINISH
         updateRemaining()
         ticker?.cancel()
         transport.stop()
         val actualSeconds = ((fullDurationMillis - _state.value.remainingMillis) / 1_000L).toInt()
         _state.value = _state.value.copy(finishing = true, paused = true)
+        val pending = pendingRecordJob
         viewModelScope.launch {
-            runCatching {
-                gateway.saveResult(
-                    sessionId,
-                    startedAtEpochMillis,
-                    config,
-                    actualSeconds,
-                )
+            pending?.join()
+            val outcome = operationMutex.withLock {
+                runCatching {
+                    gateway.saveResult(
+                        sessionId,
+                        startedAtEpochMillis,
+                        config,
+                        actualSeconds,
+                    )
+                }
             }.onSuccess {
                 resultSaved = true
                 effectsChannel.send(PracticeSessionEffect.Finished(it, config))
             }.onFailure {
+                exclusiveAction = null
                 _state.value = _state.value.copy(finishing = false, error = it.message ?: "练习结果保存失败。")
                 effectsChannel.send(PracticeSessionEffect.Message("结果未保存，但当前总结仍保留在屏幕上。"))
             }
@@ -402,15 +460,35 @@ class PracticeSessionViewModel(
     }
 
     fun abandon() {
-        pause()
+        if (exclusiveAction != null) return
+        exclusiveAction = ExclusiveAction.ABANDON
+        operationGeneration++
+        updateRemaining()
+        ticker?.cancel()
         transport.stop()
-        viewModelScope.launch { runCatching { gateway.discardSession(sessionId) } }
+        savedStateHandle[KEY_PAUSED] = true
+        _state.value = _state.value.copy(paused = true, abandoning = true, error = null)
+        val pending = pendingRecordJob
+        viewModelScope.launch {
+            pending?.join()
+            val outcome = operationMutex.withLock { runCatching { gateway.discardSession(sessionId) } }
+            outcome.onSuccess {
+                effectsChannel.send(PracticeSessionEffect.Abandoned)
+            }.onFailure {
+                exclusiveAction = null
+                _state.value = _state.value.copy(
+                    abandoning = false,
+                    recordingResult = false,
+                    error = it.message ?: "无法放弃本次练习，请重试。",
+                )
+            }
+        }
     }
 
     private fun startTicker() {
         ticker?.cancel()
         ticker = viewModelScope.launch {
-            while (isActive && !_state.value.paused && !_state.value.finishing) {
+            while (isActive && !_state.value.paused && !_state.value.operationInProgress) {
                 updateRemaining()
                 if (_state.value.remainingMillis <= 0) {
                     finish()
@@ -451,7 +529,10 @@ class PracticeSessionViewModel(
         const val KEY_BEST_STREAK = "practice_best_streak"
         const val KEY_SESSION_ID = "practice_session_id"
         const val KEY_STARTED_AT = "practice_started_at"
+        const val KEY_LAST_STEP_TOKEN = "practice_last_step_token"
     }
+
+    private enum class ExclusiveAction { FINISH, RESET, ABANDON }
 }
 
 internal fun practiceConfigFrom(handle: SavedStateHandle) = PracticeConfigUi(
@@ -466,6 +547,10 @@ internal fun practiceConfigFrom(handle: SavedStateHandle) = PracticeConfigUi(
     maxFret = (handle["maxFret"] ?: 12).coerceIn(1, 24),
     sourceProgressionId = handle.get<String>("progressionId").orEmpty(),
     useProgressionRhythm = handle["progressionRhythm"] ?: false,
+    songId = handle.get<String>("songId").orEmpty(),
+    songSectionId = handle.get<String>("songSectionId").orEmpty(),
+    songTransitionFrom = handle.get<String>("songFrom").orEmpty(),
+    songTransitionTo = handle.get<String>("songTo").orEmpty(),
 )
 
 private inline fun <reified T : Enum<T>> enumValue(raw: String?, fallback: T): T =

@@ -14,9 +14,16 @@ class ExperienceCapabilitiesTest {
         assertFalse(beginner.showAllVoicingsByDefault)
         assertFalse(beginner.defaultAllowBarre)
         assertEquals(50, beginner.defaultPracticeBpm)
+        assertFalse(beginner.showSongTheoryFields)
+        assertFalse(beginner.expandAdvancedSongRhythmEditor)
+        assertEquals(1, beginner.songCapoPlanLimit)
+        assertEquals(6, beginner.songVoicingPreviewLimit)
         assertTrue(professional.showAdvancedTheoryByDefault)
         assertTrue(professional.showAllVoicingsByDefault)
         assertTrue(professional.defaultAllowBarre)
         assertTrue(professional.expandAdvancedPracticeSettings)
+        assertTrue(professional.showSongTheoryFields)
+        assertTrue(professional.expandAdvancedSongRhythmEditor)
+        assertEquals(3, professional.songCapoPlanLimit)
     }
 }

@@ -24,6 +24,7 @@ public final class ChordRepository {
     private GuitarVoicingRepository guitarVoicingRepository;
     private ChordTheoryEngine theoryEngine;
     private ChordNameParser nameParser;
+    private ChordVoicingGenerator voicingGenerator;
     private boolean usingFallbackData;
     private String dataLoadMessage = "";
 
@@ -61,6 +62,7 @@ public final class ChordRepository {
             registerShape(shape);
         }
         initializeEngines();
+        generateMissingRootPositionShapes();
         dataLoadMessage = "Chord data supplied by caller.";
         rebuildIndexes();
     }
@@ -137,12 +139,31 @@ public final class ChordRepository {
     }
 
     public List<ChordShape> search(String keyword) {
-        return filterShapes(keyword, "", "", 0);
+        List<ChordShape> result = filterShapes(keyword, "", "", 0);
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            LookupResult exact = find(keyword);
+            if (exact.recognized && exact.chord != null) {
+                for (int index = exact.chord.shapes.size() - 1; index >= 0; index--) {
+                    ChordShape shape = exact.chord.shapes.get(index);
+                    if (!result.contains(shape)) {
+                        result.add(0, shape);
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     public List<Chord> filteredChords(String keyword, String root, String type, int difficultyBucket) {
         List<ChordShape> filteredShapes = filterShapes(keyword, root, type, difficultyBucket);
         LinkedHashMap<String, Chord> result = new LinkedHashMap<>();
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            LookupResult exact = find(keyword);
+            if (exact.recognized && exact.chord != null
+                    && matchesChordFilters(exact.chord, root, type, difficultyBucket)) {
+                result.put(exact.chord.symbol, exact.chord);
+            }
+        }
         for (ChordShape shape : filteredShapes) {
             ChordQuality quality = qualitiesById.get(shape.qualityId);
             Chord chord = chordsBySymbol.get(shape.symbol(quality));
@@ -164,11 +185,22 @@ public final class ChordRepository {
         }
         Chord chord = chordsByAlias.get(parsed.normalizedSymbol);
         if (chord == null) {
+            List<ChordShape> generatedShapes = new ArrayList<>();
+            if (!parsed.canonicalBassNote.isEmpty()) {
+                ChordShape generated = voicingGenerator.generate(
+                        parsed.root,
+                        parsed.bassNote,
+                        parsed.formula
+                );
+                if (generated != null) {
+                    generatedShapes.add(generated);
+                }
+            }
             chord = theoryEngine.buildChord(
-                    parsed.canonicalRoot,
-                    parsed.canonicalBassNote,
+                    parsed.root,
+                    parsed.bassNote,
                     parsed.formula,
-                    new ArrayList<>()
+                    generatedShapes
             );
         } else if (!parsed.displaySymbol.equals(parsed.normalizedSymbol)) {
             chord = theoryEngine.buildChord(
@@ -215,6 +247,10 @@ public final class ChordRepository {
     }
 
     public ChordNameParser getNameParser() {
+        return nameParser;
+    }
+
+    public ChordSymbolParser getSymbolParser() {
         return nameParser;
     }
 
@@ -312,9 +348,42 @@ public final class ChordRepository {
             return quality != null && "suspended".equals(quality.category);
         }
         if ("add".equals(type)) {
-            return quality != null && "added".equals(quality.category);
+            return quality != null && quality.category.startsWith("added");
         }
         return type.equals(shape.qualityId);
+    }
+
+    private boolean matchesChordFilters(Chord chord, String root, String type, int difficultyBucket) {
+        String canonicalRoot = canonicalRootFilter(root);
+        if (!canonicalRoot.isEmpty() && !canonicalRoot.equals(NoteUtils.canonicalPitchClass(chord.root))) {
+            return false;
+        }
+        String normalizedType = normalizeTypeFilter(type);
+        if (!normalizedType.isEmpty()) {
+            if ("slash".equals(normalizedType)) {
+                if (chord.bassNote.isEmpty()) {
+                    return false;
+                }
+            } else if ("sus".equals(normalizedType)) {
+                ChordFormula formula = formulaRepository.findById(chord.qualityId);
+                if (formula == null || !"suspended".equals(formula.category)) {
+                    return false;
+                }
+            } else if ("add".equals(normalizedType)) {
+                ChordFormula formula = formulaRepository.findById(chord.qualityId);
+                if (formula == null || !formula.category.startsWith("added")) {
+                    return false;
+                }
+            } else if (!normalizedType.equals(chord.qualityId)) {
+                return false;
+            }
+        }
+        if (difficultyBucket > 0) {
+            if (chord.shapes.isEmpty() || !matchesDifficulty(chord.shapes.get(0), difficultyBucket)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean matchesDifficulty(ChordShape shape, int bucket) {
@@ -383,6 +452,7 @@ public final class ChordRepository {
             registerShape(shape);
         }
         initializeEngines();
+        generateMissingRootPositionShapes();
         usingFallbackData = false;
         dataLoadMessage = "Loaded chord JSON from " + loaded.sourceDescription + ".";
     }
@@ -407,6 +477,7 @@ public final class ChordRepository {
         }
         guitarVoicingRepository = new GuitarVoicingRepository(formulaRepository, voicings);
         initializeEngines();
+        generateMissingRootPositionShapes();
         usingFallbackData = true;
         dataLoadMessage = "Chord JSON unavailable; using safe built-in fallback. " + (reason == null ? "" : reason);
     }
@@ -414,6 +485,29 @@ public final class ChordRepository {
     private void initializeEngines() {
         theoryEngine = new ChordTheoryEngine();
         nameParser = new ChordNameParser(formulaRepository);
+        voicingGenerator = new ChordVoicingGenerator();
+    }
+
+    private void generateMissingRootPositionShapes() {
+        Set<String> covered = new LinkedHashSet<>();
+        for (ChordShape shape : shapes) {
+            if (shape.bassNote.isEmpty()) {
+                covered.add(shape.root + ":" + shape.qualityId);
+            }
+        }
+        for (String root : CHROMATIC_ROOTS) {
+            for (ChordFormula formula : formulaRepository.getAll()) {
+                String key = root + ":" + formula.id;
+                if (covered.contains(key)) {
+                    continue;
+                }
+                ChordShape generated = voicingGenerator.generate(root, "", formula);
+                if (generated != null) {
+                    registerShape(generated);
+                    covered.add(key);
+                }
+            }
+        }
     }
 
     private String canonicalLookupKey(String symbol) {

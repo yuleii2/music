@@ -37,6 +37,18 @@ import org.junit.Before
 import com.k2.music.ui.preferences.AppPreferences
 import com.k2.music.ui.preferences.ExperienceMode
 import com.k2.music.ui.learning.LearningProfileStore
+import com.k2.music.ui.learning.LearningGoal
+import com.k2.music.song.SongChordEvent
+import com.k2.music.song.SongPracticeMode
+import com.k2.music.song.SongPracticeRun
+import com.k2.music.song.SongPracticeRunStore
+import com.k2.music.song.SongProject
+import com.k2.music.song.SongProjectStore
+import com.k2.music.song.SongRow
+import com.k2.music.song.SongSection
+import com.k2.music.song.SongSectionType
+import com.k2.music.song.SongTimingState
+import com.k2.music.song.UserReportedDifficultyStore
 
 class ComposeFrontendTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComposeMainActivity>()
@@ -70,7 +82,7 @@ class ComposeFrontendTest {
         clickOnboardingText("练习歌曲伴奏")
         clickOnboardingText("继续")
         clickOnboardingText("10 分钟")
-        clickOnboardingText("专业：默认展开理论和高级参数")
+        clickOnboardingText("专业")
         clickOnboardingText("完成设置")
         waitForTag("home_content")
 
@@ -90,6 +102,125 @@ class ComposeFrontendTest {
         }
         composeRule.onNodeWithTag("nav_library", useUnmergedTree = true).performClick()
         waitForTag("library_screen")
+    }
+
+    @Test
+    fun practiceOpensSongLibraryAndImportPreviewWithoutAddingAnotherBottomTab() {
+        waitForTag("home_content")
+        composeRule.onNodeWithTag("nav_practice", useUnmergedTree = true).performClick()
+        waitForTag("practice_home_screen")
+        composeRule.onNodeWithTag("practice_home_screen").performScrollToNode(hasTestTag("song_library_entry"))
+        composeRule.onNodeWithTag("song_library_entry").performClick()
+        waitForTag("song_library_screen")
+        composeRule.onNodeWithText("粘贴曲谱").performClick()
+        waitForTag("song_import_screen")
+        composeRule.onNodeWithTag("song_import_text").performTextInput("曲名：导航测试曲\n[主歌]\n| C | G |")
+        composeRule.onNodeWithTag("song_parse_button").performClick()
+        waitForTag("song_import_preview_screen")
+        composeRule.onNodeWithText("导航测试曲").assertExists()
+        composeRule.onNodeWithTag("song_import_preview_list").performScrollToNode(hasTestTag("song_line_correction_toggle"))
+        composeRule.onNodeWithTag("song_line_correction_toggle").performClick()
+        composeRule.onNodeWithTag("song_import_preview_list").performScrollToNode(hasText("第 1 行"))
+        assertTrue(composeRule.onAllNodesWithText("段落标题").fetchSemanticsNodes().isNotEmpty())
+        composeRule.onNodeWithContentDescription("返回").performClick()
+        waitForTag("song_import_screen")
+        composeRule.onNodeWithTag("nav_home", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun songEditPerformanceDifficultyAndGuidedPracticeUseTheRealLocalStores() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val projectStore = SongProjectStore(SongProjectStore.defaultFile(context.filesDir))
+        val runStore = SongPracticeRunStore(SongPracticeRunStore.defaultFile(context.filesDir))
+        val difficultyStore = UserReportedDifficultyStore(UserReportedDifficultyStore.defaultFile(context.filesDir))
+        val id = "ui-song-${System.currentTimeMillis()}"
+        val project = instrumentationSong(id, "UI 曲谱闭环")
+        projectStore.save(project)
+        try {
+            composeRule.onNodeWithTag("nav_practice", useUnmergedTree = true).performClick()
+            waitForTag("practice_home_screen")
+            composeRule.onNodeWithTag("practice_home_screen").performScrollToNode(hasTestTag("song_library_entry"))
+            composeRule.onNodeWithTag("song_library_entry").performClick()
+            waitForTag("song_library_screen")
+            composeRule.onNodeWithText(project.title).performClick()
+            waitForTag("song_detail_screen")
+
+            composeRule.onNodeWithContentDescription("编辑曲谱").performClick()
+            waitForTag("song_editor_screen")
+            composeRule.onNodeWithTag("song_editor_bpm").performTextClearance()
+            composeRule.onNodeWithTag("song_editor_bpm").performTextInput("84")
+            composeRule.onNodeWithContentDescription("保存曲谱").performClick()
+            composeRule.onNodeWithText("确认保存").performClick()
+            waitForTag("song_detail_screen")
+            assertEquals(84, projectStore.read(id)?.bpm)
+
+            composeRule.onNodeWithTag("song_detail_list").performScrollToNode(hasTestTag("song_capo_up"))
+            composeRule.onNodeWithTag("song_capo_up").performClick()
+            composeRule.waitUntil(10_000) { projectStore.read(id)?.capoFret == 1 }
+
+            composeRule.onNodeWithTag("song_detail_list").performScrollToNode(hasTestTag("song_performance_whole"))
+            composeRule.onNodeWithTag("song_performance_whole").performClick()
+            waitForTag("song_practice_screen")
+            composeRule.onNodeWithTag("song_current_chord").assertExists()
+            composeRule.onNodeWithTag("song_next_chord").assertExists()
+            composeRule.onNodeWithContentDescription("开始或继续连续演奏").performClick()
+            composeRule.onNodeWithContentDescription("结束连续演奏").performClick()
+            composeRule.onNodeWithText("演奏总结").assertExists()
+            composeRule.onNodeWithTag("song_completed_checkbox").performClick()
+            composeRule.onNodeWithTag("song_difficulty_checkbox_0").performClick()
+            composeRule.onNodeWithTag("save_song_performance").performClick()
+            composeRule.waitUntil(10_000) {
+                composeRule.onAllNodesWithText("连续演奏已保存").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(1, runStore.forSong(id).size)
+            assertEquals(1, difficultyStore.forSong(id).size)
+
+            composeRule.onNodeWithText("返回曲谱详情").performClick()
+            waitForTag("song_detail_screen")
+            composeRule.onNodeWithTag("song_detail_list").performScrollToNode(hasTestTag("song_guided_whole"))
+            composeRule.onNodeWithTag("song_guided_whole").performClick()
+            composeRule.onNodeWithTag("song_guided_pair_0").performClick()
+            waitForTag("practice_session_screen")
+        } finally {
+            runStore.deleteForSong(id)
+            difficultyStore.deleteForSong(id)
+            projectStore.delete(id)
+        }
+    }
+
+    @Test
+    fun songAccompanimentGoalShowsAResumableHomeTaskWithSavedConfiguration() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val projectStore = SongProjectStore(SongProjectStore.defaultFile(context.filesDir))
+        val runStore = SongPracticeRunStore(SongPracticeRunStore.defaultFile(context.filesDir))
+        val difficultyStore = UserReportedDifficultyStore(UserReportedDifficultyStore.defaultFile(context.filesDir))
+        val id = "ui-home-song-${System.currentTimeMillis()}"
+        val project = instrumentationSong(id, "首页继续曲")
+        projectStore.save(project)
+        runStore.save(
+            SongPracticeRun(
+                "ui-home-run-$id", id, project.sections.single().id, SongPracticeMode.PERFORMANCE,
+                72, 0, 0, 1L, 61L, 60, false, emptyList(), loopEnabled = false, showFretboard = false,
+            ),
+        )
+        val learning = (composeRule.activity.application as MusicApplication)
+            .appContainer.learningProfileStore
+        val previous = learning.profile.value
+        learning.save(previous.copy(onboardingCompleted = true, goals = setOf(LearningGoal.SONG_ACCOMPANIMENT)))
+        try {
+            composeRule.activityRule.scenario.recreate()
+            waitForTag("home_content")
+            composeRule.onNodeWithTag("home_content").performScrollToNode(hasText("继续连续演奏"))
+            composeRule.onNodeWithText("继续连续演奏").performClick()
+            waitForTag("song_practice_screen")
+            composeRule.onNodeWithText("72 BPM").assertExists()
+            composeRule.onNodeWithText("显示指板图").assertExists()
+        } finally {
+            learning.save(previous)
+            runStore.deleteForSong(id)
+            difficultyStore.deleteForSong(id)
+            projectStore.delete(id)
+        }
     }
 
     @Test
@@ -125,6 +256,9 @@ class ComposeFrontendTest {
         waitForTag("home_content")
         composeRule.onNodeWithTag("nav_library", useUnmergedTree = true).performClick()
         waitForTag("library_screen")
+        waitForTag("library_grid")
+        composeRule.onNodeWithTag("library_grid")
+            .performScrollToNode(hasTestTag("library_chord_C"))
 
         val initiallyFavorite = composeRule
             .onAllNodesWithContentDescription("取消收藏 C", useUnmergedTree = true)
@@ -150,28 +284,35 @@ class ComposeFrontendTest {
         composeRule.onNodeWithText("仅开放按法").performClick()
         composeRule.onNodeWithText("应用").performClick()
         composeRule.waitUntil(10_000) {
-            composeRule.onAllNodesWithText("筛选（已启用）").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("筛选 · 1").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("清除全部").performClick()
 
-        composeRule.onNodeWithText("C", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithTag("library_grid")
+            .performScrollToNode(hasTestTag("library_chord_C"))
+        composeRule.onNodeWithTag("library_chord_C", useUnmergedTree = true).performClick()
         waitForTag("chord_detail_screen")
         composeRule.onNodeWithTag("chord_detail_content")
-            .performScrollToNode(hasText("2. C 大横按"))
-        composeRule.onNodeWithText("2. C 大横按").performScrollTo().performClick()
-        composeRule.onNodeWithText("2. C 大横按").assertIsSelected()
+            .performScrollToNode(hasTestTag("voicing_selector"))
+        composeRule.onNodeWithTag("voicing_option_0", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithTag("voicing_option_0", useUnmergedTree = true).assertIsSelected()
     }
 
     @Test
-    fun theoreticalChordWithoutVoicingShowsAnExplicitFallback() {
+    fun advancedChordShowsAValidatedGeneratedVoicing() {
         waitForTag("home_content")
         composeRule.onNodeWithTag("home_search_launcher").performClick()
         composeRule.onNodeWithTag("home_search_field").performTextInput("CmMaj7")
         composeRule.onNodeWithTag("home_search_field").performImeAction()
         waitForTag("chord_detail_screen")
-        composeRule.onNodeWithText(
-            "该和弦理论数据可用，当前暂无收录指法。主操作会试听组成音。",
-        ).performScrollTo().assertExists()
+        composeRule.onNodeWithTag("chord_detail_content")
+            .performScrollToNode(hasText("1. CmMaj7 可移动按法"))
+        composeRule.onNodeWithText("1. CmMaj7 可移动按法").assertExists()
+        assertTrue(
+            composeRule.onAllNodesWithText(
+                "该和弦理论数据可用，当前暂无收录指法。主操作会试听组成音。",
+            ).fetchSemanticsNodes().isEmpty(),
+        )
     }
 
     @Test
@@ -443,6 +584,34 @@ class ComposeFrontendTest {
         composeRule.onNode(hasTestTag(tag)).assertExists()
     }
 
+    private fun instrumentationSong(id: String, title: String): SongProject {
+        val events = listOf(
+            SongChordEvent("event-c-$id", "C", "C", 0, 4.0, null, 0, 0),
+            SongChordEvent("event-g-$id", "G", "G", 4, 4.0, null, 1, 1),
+        )
+        return SongProject(
+            id = id,
+            title = title,
+            artist = "设备测试",
+            originalText = "[主歌]\n| C | G |",
+            originalKey = "C",
+            transposeSemitones = 0,
+            capoFret = 0,
+            bpm = 80,
+            timeSignature = "4/4",
+            timingState = SongTimingState.EXPLICIT_BEATS,
+            sections = listOf(
+                SongSection(
+                    "section-$id", "主歌", SongSectionType.VERSE, 0, 1,
+                    listOf(SongRow("row-$id", "测试歌词", "C G", events, 0)),
+                ),
+            ),
+            notes = "",
+            createdAt = 1L,
+            updatedAt = 1L,
+        )
+    }
+
     private fun fullBackupManager(): FullBackupManager {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val repository = ChordRepository()
@@ -457,6 +626,9 @@ class ComposeFrontendTest {
             PracticeRecordStore(PracticeRecordStore.defaultFile(context.filesDir)),
             TransitionAttemptStore(TransitionAttemptStore.defaultFile(context.filesDir)),
             AiSettingsStore(context),
+            SongProjectStore(SongProjectStore.defaultFile(context.filesDir)),
+            SongPracticeRunStore(SongPracticeRunStore.defaultFile(context.filesDir)),
+            UserReportedDifficultyStore(UserReportedDifficultyStore.defaultFile(context.filesDir)),
         )
     }
 

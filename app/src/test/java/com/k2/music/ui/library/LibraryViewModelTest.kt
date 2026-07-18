@@ -5,6 +5,8 @@ import com.k2.music.ui.FakeChordCatalog
 import com.k2.music.ui.FakeUserLibrary
 import com.k2.music.ui.MainDispatcherRule
 import com.k2.music.ui.testChord
+import com.k2.music.ui.gateway.LibraryFilter
+import com.k2.music.ui.model.AccidentalPreference
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -65,5 +67,26 @@ class LibraryViewModelTest {
         viewModel.undoFavoriteChange(setOf("C"), expectedFavorite = true)
         advanceUntilIdle()
         assertFalse(library.isFavorite("C"))
+    }
+
+    @Test
+    fun keepsTwelveToneFamilyFilterAndAccidentalPreferenceInSavedState() = runTest(mainDispatcherRule.dispatcher) {
+        val handle = SavedStateHandle()
+        val viewModel = LibraryViewModel(
+            FakeChordCatalog(listOf(testChord("C"))),
+            FakeUserLibrary(),
+            handle,
+        )
+        advanceUntilIdle()
+
+        viewModel.setFilter(LibraryFilter(root = "C#", familyId = "seventh"))
+        viewModel.setAccidentalPreference(AccidentalPreference.FLATS)
+
+        assertEquals("C#", viewModel.state.value.filter.root)
+        assertEquals("seventh", viewModel.state.value.filter.familyId)
+        assertEquals(AccidentalPreference.FLATS, viewModel.state.value.accidentalPreference)
+        assertEquals("C#", handle.get<String>("library_filter_root"))
+        assertEquals("seventh", handle.get<String>("library_filter_family"))
+        assertEquals("FLATS", handle.get<String>("library_accidental_preference"))
     }
 }

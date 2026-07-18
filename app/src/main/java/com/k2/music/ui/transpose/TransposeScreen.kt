@@ -23,7 +23,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material3.Button
+import com.k2.music.ui.components.StudioButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,7 +38,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.k2.music.ui.components.StudioTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -130,7 +130,7 @@ fun TransposeScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("transpose_screen"),
         topBar = {
-            TopAppBar(
+            StudioTopAppBar(
                 title = { Text("移调与变调夹") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -217,7 +217,7 @@ private fun TransposeForm(
         )
         ValueSlider("半音", state.semitones, -11, 11, onSemitones)
         AccidentalPreferenceRow(state.preference, onPreference)
-        Button(
+        StudioButton(
             onClick = onCalculate,
             modifier = Modifier.fillMaxWidth().height(52.dp).testTag("transpose_calculate"),
         ) {
@@ -279,7 +279,7 @@ private fun CapoForm(
             ValueSlider("变调夹品位", state.capoFret, 0, 12, onCapoFret)
             AccidentalPreferenceRow(state.preference, onPreference)
         }
-        Button(onClick = onCalculate, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("计算") }
+        StudioButton(onClick = onCalculate, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("计算") }
         state.capoError?.let { InlineMessage(it, isError = true) }
         if (state.capoResult.isNotBlank()) ResultCard("实际声音", state.capoResult, onCopy, onOpen, null)
     }

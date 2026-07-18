@@ -12,6 +12,7 @@ import com.k2.music.ChordRepository
 import com.k2.music.ChordTransposer
 import com.k2.music.CustomVoicingStore
 import com.k2.music.PracticePlanDraftStore
+import com.k2.music.LastPracticeConfigStore
 import com.k2.music.PracticePreferencesStore
 import com.k2.music.PracticeRecordStore
 import com.k2.music.TransitionAttemptStore
@@ -21,6 +22,13 @@ import com.k2.music.UserChordStore
 import com.k2.music.VoicingRecommendationEngine
 import com.k2.music.FullBackupManager
 import com.k2.music.ui.preferences.AppPreferences
+import com.k2.music.song.SongProjectStore
+import com.k2.music.song.SongPracticeRunStore
+import com.k2.music.song.UserReportedDifficultyStore
+import com.k2.music.song.RepositorySongChordResolver
+import com.k2.music.song.SongSheetParser
+import com.k2.music.song.SongArrangementEngine
+import com.k2.music.song.SongTransitionExtractor
 import com.k2.music.ui.learning.LearningProfileStore
 import com.k2.music.ui.gateway.DefaultChordCatalogGateway
 import com.k2.music.ui.gateway.DefaultUserLibraryGateway
@@ -32,6 +40,8 @@ import com.k2.music.ui.gateway.DefaultProgressionTransport
 import com.k2.music.ui.gateway.DefaultPracticeGateway
 import com.k2.music.ui.gateway.DefaultAiGateway
 import com.k2.music.ui.gateway.DefaultExportGateway
+import com.k2.music.ui.song.DefaultSongGateway
+import com.k2.music.ui.song.SongImportDraftStore
 import java.io.File
 import java.io.Closeable
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +82,13 @@ class CoreServices internal constructor(
     val practicePreferencesStore =
         PracticePreferencesStore(PracticePreferencesStore.defaultFile(application.filesDir))
     val practicePlanDraftStore = PracticePlanDraftStore(application)
+    val lastPracticeConfigStore =
+        LastPracticeConfigStore(LastPracticeConfigStore.defaultFile(application.filesDir))
+    val songProjectStore = SongProjectStore(SongProjectStore.defaultFile(application.filesDir))
+    val songPracticeRunStore = SongPracticeRunStore(SongPracticeRunStore.defaultFile(application.filesDir))
+    val songDifficultyStore =
+        UserReportedDifficultyStore(UserReportedDifficultyStore.defaultFile(application.filesDir))
+    val songImportDraftStore = SongImportDraftStore(SongImportDraftStore.defaultFile(application.filesDir))
     val voicingRecommendationEngine = VoicingRecommendationEngine()
     val aiSettingsStore = AiSettingsStore(application)
     val aiResultCache = AiResultCache(application)
@@ -108,13 +125,6 @@ class CoreServices internal constructor(
         practicePreferencesStore,
         voicingRecommendationEngine,
     )
-    val practiceGateway = DefaultPracticeGateway(
-        practiceRecordStore,
-        transitionAttemptStore,
-        practicePreferencesStore,
-        practicePlanDraftStore,
-        progressionGateway,
-    )
     val aiGateway = DefaultAiGateway(
         aiService,
         aiSettingsStore,
@@ -129,6 +139,35 @@ class CoreServices internal constructor(
         customVoicingStore,
         userChordStore,
     )
+    val songArrangementEngine = SongArrangementEngine(
+        chordRepository,
+        chordTransposer,
+        capoAssistant,
+        voicingRecommendationEngine,
+    ) { symbol -> customVoicingStore.forChord(symbol).map { it.toVoicing() } }
+    val songTransitionExtractor = SongTransitionExtractor(RepositorySongChordResolver(chordRepository))
+    val songGateway = DefaultSongGateway(
+        songProjectStore,
+        songPracticeRunStore,
+        songDifficultyStore,
+        SongSheetParser(RepositorySongChordResolver(chordRepository)),
+        songImportDraftStore,
+        songArrangementEngine,
+        practicePreferencesStore,
+        userChordStore,
+        transitionAttemptStore,
+        progressionGateway,
+        songTransitionExtractor,
+    )
+    val practiceGateway = DefaultPracticeGateway(
+        practiceRecordStore,
+        transitionAttemptStore,
+        practicePreferencesStore,
+        practicePlanDraftStore,
+        progressionGateway,
+        lastPracticeConfigStore,
+        songGateway,
+    )
     val fullBackupManager = FullBackupManager(
         appPreferences,
         learningProfileStore,
@@ -140,6 +179,9 @@ class CoreServices internal constructor(
         practiceRecordStore,
         transitionAttemptStore,
         aiSettingsStore,
+        songProjectStore,
+        songPracticeRunStore,
+        songDifficultyStore,
     )
 
     override fun close() {

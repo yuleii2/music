@@ -51,11 +51,61 @@ class RouteCodecTest {
             "saved/progression#1",
             decodeRouteValue(practice.substringAfter("progressionId=").substringBefore('&')),
         )
-        assertEquals("true", practice.substringAfter("progressionRhythm="))
+        assertEquals("true", practice.substringAfter("progressionRhythm=").substringBefore('&'))
 
         val export = exportRoute(ExportScopeUi.SELECTION, listOf("G/B", "D/F#"))
         val exportSymbols = export.substringAfter("symbols=").substringBefore('&')
         assertEquals("G/B\nD/F#", decodeRouteValue(exportSymbols))
         assertFalse(exportSymbols.contains('/'))
+    }
+
+    @Test
+    fun songDetailAndEditorRoutesKeepIdsInQueryArguments() {
+        val id = "song/id #1"
+        val detail = songDetailRoute(id)
+        val editor = songEditorRoute(id)
+
+        assertEquals(id, decodeRouteValue(detail.substringAfter("id=")))
+        assertEquals(id, decodeRouteValue(editor.substringAfter("id=")))
+        assertFalse(detail.substringAfter("id=").contains('/'))
+        assertFalse(editor.substringAfter("id=").contains('/'))
+    }
+
+    @Test
+    fun songGuidedPracticeMetadataRoundTripsWithoutBecomingPathSegments() {
+        val config = PracticeConfigUi(
+            symbols = "G/B C",
+            songId = "song/id",
+            songSectionId = "section #1",
+            songTransitionFrom = "G/B",
+            songTransitionTo = "C#",
+        )
+        val route = practiceSessionRoute(config)
+
+        assertEquals("song/id", decodeRouteValue(route.substringAfter("songId=").substringBefore('&')))
+        assertEquals("section #1", decodeRouteValue(route.substringAfter("songSectionId=").substringBefore('&')))
+        assertEquals("G/B", decodeRouteValue(route.substringAfter("songFrom=").substringBefore('&')))
+        assertEquals("C#", decodeRouteValue(route.substringAfter("songTo=").substringBefore('&')))
+    }
+
+    @Test
+    fun songContinueRouteCarriesCompleteDisplayAndArrangementConfiguration() {
+        val route = songPracticeRoute(
+            id = "song/id",
+            sectionId = "chorus #1",
+            bpm = 72,
+            transposeSemitones = -2,
+            capoFret = 3,
+            loopEnabled = false,
+            showFretboard = true,
+        )
+
+        assertEquals("song/id", decodeRouteValue(route.substringAfter("id=").substringBefore('&')))
+        assertEquals("chorus #1", decodeRouteValue(route.substringAfter("sectionId=").substringBefore('&')))
+        assertEquals("72", route.substringAfter("restoreBpm=").substringBefore('&'))
+        assertEquals("-2", route.substringAfter("restoreTranspose=").substringBefore('&'))
+        assertEquals("3", route.substringAfter("restoreCapo=").substringBefore('&'))
+        assertEquals("0", route.substringAfter("restoreLoop=").substringBefore('&'))
+        assertEquals("1", route.substringAfter("restoreFretboard=").substringBefore('&'))
     }
 }
